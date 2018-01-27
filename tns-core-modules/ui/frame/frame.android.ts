@@ -52,14 +52,14 @@ function getAttachListener(): android.view.View.OnAttachStateChangeListener {
             }
 
             onViewAttachedToWindow(view: android.view.View): void {
-                const owner: View = view[ownerSymbol];
-                if (owner) {
+                const owner: Frame = view[ownerSymbol];
+                if (owner && !owner._attachedToWindow) {
                     owner._onAttachedToWindow();
                 }
             }
 
             onViewDetachedFromWindow(view: android.view.View): void {
-                const owner: View = view[ownerSymbol];
+                const owner: Frame = view[ownerSymbol];
                 if (owner) {
                     owner._onDetachedFromWindow();
                 }
@@ -89,7 +89,7 @@ export class Frame extends FrameBase {
     private _delayedNavigationEntry: BackstackEntry;
     private _containerViewId: number = -1;
     private _tearDownPending = false;
-    private _attachedToWindow = false;
+    _attachedToWindow = false;
     public _isBack: boolean = true;
 
     constructor() {
@@ -969,6 +969,10 @@ function setActivityContent(activity: android.app.Activity, savedInstanceState: 
     }
 
     activity.setContentView(rootView.nativeViewProtected, new org.nativescript.widgets.CommonLayoutParams());
+
+    if (rootView instanceof Frame && !rootView._attachedToWindow) {
+        rootView._onAttachedToWindow();
+    }
 }
 
 const notifyLaunch = profile("notifyLaunch", function notifyLaunch(intent: android.content.Intent, savedInstanceState: android.os.Bundle): View {
