@@ -11,6 +11,7 @@ import {
     FlexDirection, FlexWrap, JustifyContent, AlignItems, AlignContent,
     Order, FlexGrow, FlexShrink, FlexWrapBefore, AlignSelf
 } from "../../layouts/flexbox-layout";
+import { LinearGradient } from "../gradient";
 
 export interface Thickness {
     left: number;
@@ -64,7 +65,7 @@ export class Style extends Observable {
 
     public background: string;
     public backgroundColor: Color;
-    public backgroundImage: string;
+    public backgroundImage: string | LinearGradient;
     public backgroundRepeat: BackgroundRepeat;
     public backgroundSize: string;
     public backgroundPosition: string;
@@ -91,6 +92,8 @@ export class Style extends Observable {
     public fontWeight: FontWeight;
     public font: string;
 
+    public androidElevation: number;
+    public androidDynamicElevationOffset: number;
     public zIndex: number;
     public opacity: number;
     public visibility: Visibility;
@@ -120,18 +123,19 @@ export class Style extends Observable {
     public verticalAlignment: VerticalAlignment;
 
     // TabView-specific props
+    public tabTextFontSize: number;
     public tabTextColor: Color;
     public tabBackgroundColor: Color;
     public selectedTabTextColor: Color;
     public androidSelectedTabHighlightColor: Color;
 
-    // ListView-specific props 
+    // ListView-specific props
     public separatorColor: Color;
 
     //SegmentedBar-specific props
     public selectedBackgroundColor: Color;
 
-    // Page-specific props 
+    // Page-specific props
     public statusBarStyle: "light" | "dark";
     public androidStatusBarBackground: Color;
 

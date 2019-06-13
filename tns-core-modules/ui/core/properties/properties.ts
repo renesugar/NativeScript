@@ -670,7 +670,7 @@ export class CssAnimationProperty<T extends Style, U> implements definitions.Css
 
     public _valueConverter?: (value: string) => any;
 
-    constructor(private options: definitions.CssAnimationPropertyOptions<T, U>) {
+    constructor(options: definitions.CssAnimationPropertyOptions<T, U>) {
         const { valueConverter, equalityComparer, valueChanged, defaultValue } = options;
         const propertyName = options.name;
         this.name = propertyName;
@@ -1087,7 +1087,7 @@ function inheritableCssPropertyValuesOn(style: Style): Array<{ property: Inherit
 
 type PropertyInterface = Property<ViewBase, any> | CssProperty<Style, any> | CssAnimationProperty<Style, any>;
 
-export const initNativeView = profile('"properties".initNativeView', function initNativeView(view: ViewBase): void {
+export const initNativeView = profile("\"properties\".initNativeView", function initNativeView(view: ViewBase): void {
     if (view._suspendedUpdates) {
         applyPendingNativeSetters(view);
     } else {
@@ -1100,7 +1100,7 @@ export const initNativeView = profile('"properties".initNativeView', function in
 export function applyPendingNativeSetters(view: ViewBase): void {
     // TODO: Check what happens if a view was suspended and its value was reset, or set back to default!
     const suspendedUpdates = view._suspendedUpdates;
-    for (var propertyName in suspendedUpdates) {
+    for (let propertyName in suspendedUpdates) {
         const property = <PropertyInterface>suspendedUpdates[propertyName];
         const setNative = property.setNative;
         if (view[setNative]) {
@@ -1305,7 +1305,7 @@ export function getSetProperties(view: ViewBase): [string, any][] {
 export function getComputedCssValues(view: ViewBase): [string, any][] {
     const result = [];
     const style = view.style;
-    for (var prop of cssPropertyNames) {
+    for (let prop of cssPropertyNames) {
         result.push([prop, style[prop]]);
     }
 

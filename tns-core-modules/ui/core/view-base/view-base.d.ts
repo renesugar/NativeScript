@@ -46,6 +46,49 @@ export function isEventOrGesture(name: string, view: ViewBase): boolean;
  */
 export function getViewById(view: ViewBase, id: string): ViewBase;
 
+export interface ShowModalOptions {
+    /**
+     * Any context you want to pass to the modally shown view. This same context will be available in the arguments of the shownModally event handler.
+     */
+    context: any;
+
+    /**
+    * A function that will be called when the view is closed. Any arguments provided when calling ShownModallyData.closeCallback will be available here.
+    */
+    closeCallback: Function;
+
+    /**
+     * An optional parameter specifying whether to show the modal view in full-screen mode.
+     */
+    fullscreen?: boolean;
+
+    /**
+     * An optional parameter specifying whether to show the modal view with animation.
+     */
+    animated?: boolean;
+
+    /**
+     * An optional parameter specifying whether to stretch the modal view when not in full-screen mode.
+     */
+    stretched?: boolean;
+
+    /**
+     * An optional parameter that specify options specific to iOS as an object.
+     */
+    ios?: {
+        /**
+         * The UIModalPresentationStyle to be used when showing the dialog in iOS .
+         */
+        presentationStyle: any /* UIModalPresentationStyle */
+    }
+    android?: {
+        /**
+        * An optional parameter specifying whether the modal view can be dismissed when not in full-screen mode.
+        */
+        cancelable?: boolean
+    }
+}
+
 export abstract class ViewBase extends Observable {
     // Dynamic properties.
     left: Length;
@@ -64,6 +107,12 @@ export abstract class ViewBase extends Observable {
     flexShrink: FlexShrink;
     flexWrapBefore: FlexWrapBefore;
     alignSelf: AlignSelf;
+
+    /**
+     * @private
+     * Module name when the view is a module root. Otherwise, it is undefined.
+     */
+    _moduleName?: string;
 
     //@private
     /**
@@ -110,35 +159,57 @@ export abstract class ViewBase extends Observable {
     //@endprivate
 
     /**
+     * @deprecated use showModal with ShowModalOptions instead
+     *
      * Shows the View contained in moduleName as a modal view.
      * @param moduleName - The name of the module to load starting from the application root.
      * @param context - Any context you want to pass to the modally shown view.
      * This same context will be available in the arguments of the shownModally event handler.
      * @param closeCallback - A function that will be called when the view is closed.
      * Any arguments provided when calling ShownModallyData.closeCallback will be available here.
-     * @param fullscreen - An optional parameter specifying whether to show the modal page in full-screen mode.
+     * @param fullscreen - An optional parameter specifying whether to show the modal view in full-screen mode.
+     * @param animated - An optional parameter specifying whether to show the modal view with animation.
+     * @param stretched - An optional parameter specifying whether to stretch the modal view when not in full-screen mode.
      */
-    showModal(moduleName: string, context: any, closeCallback: Function, fullscreen?: boolean, animated?: boolean): ViewBase;
+    showModal(moduleName: string, context: any, closeCallback: Function, fullscreen?: boolean, animated?: boolean, stretched?: boolean): ViewBase;
 
     /**
+     * @deprecated use showModal with ShowModalOptions instead
+     *
      * Shows the view passed as parameter as a modal view.
      * @param view - View instance to be shown modally.
      * @param context - Any context you want to pass to the modally shown view. This same context will be available in the arguments of the shownModally event handler.
      * @param closeCallback - A function that will be called when the view is closed. Any arguments provided when calling ShownModallyData.closeCallback will be available here.
      * @param fullscreen - An optional parameter specifying whether to show the modal view in full-screen mode.
+     * @param animated - An optional parameter specifying whether to show the modal view with animation.
+     * @param stretched - An optional parameter specifying whether to stretch the modal view when not in full-screen mode.
      */
-    showModal(view: ViewBase, context: any, closeCallback: Function, fullscreen?: boolean, animated?: boolean): ViewBase;
+    showModal(view: ViewBase, context: any, closeCallback: Function, fullscreen?: boolean, animated?: boolean, stretched?: boolean): ViewBase;
 
     /**
-     * Deprecated. Showing view as modal is deprecated.
-     * Use showModal method with arguments.
+     * Shows the View contained in moduleName as a modal view.
+     * @param moduleName - The name of the module to load starting from the application root.
+     * @param modalOptions - A ShowModalOptions instance
+     */
+    showModal(moduleName: string, modalOptions: ShowModalOptions): ViewBase;
+
+    /**
+     * Shows the view passed as parameter as a modal view.
+     * @param view - View instance to be shown modally.
+     * @param modalOptions - A ShowModalOptions instance
+     */
+    showModal(view: ViewBase, modalOptions: ShowModalOptions): ViewBase;
+
+    /**
+     * @deprecated use showModal method with arguments
      */
     showModal(): ViewBase;
 
     /**
      * Closes the current modal view that this page is showing.
+     * @param context - Any context you want to pass back to the host when closing the modal view.
      */
-    closeModal(): void;
+    closeModal(context?: any): void;
 
     public effectiveMinWidth: number;
     public effectiveMinHeight: number;
@@ -248,7 +319,15 @@ export abstract class ViewBase extends Observable {
     public bind(options: BindingOptions, source?: Object): void;
     public unbind(property: string): void;
 
+    /**
+     * Invalidates the layout of the view and triggers a new layout pass.
+     */
     public requestLayout(): void;
+
+    /**
+     * Iterates over children of type ViewBase.
+     * @param callback Called for each child of type ViewBase. Iteration stops if this method returns falsy value.
+     */
     public eachChild(callback: (child: ViewBase) => boolean): void;
 
     public _addView(view: ViewBase, atIndex?: number): void;
@@ -278,7 +357,7 @@ export abstract class ViewBase extends Observable {
     /**
      * @private
      * Notifies each child's css state for change, recursively.
-     * Either the style scope, className or id properties were changed. 
+     * Either the style scope, className or id properties were changed.
      */
     _onCssStateChange(): void;
 
@@ -287,16 +366,17 @@ export abstract class ViewBase extends Observable {
 
     public _goToVisualState(state: string): void;
     /**
+     * @deprecated
+     *
      * This used to be the way to set attribute values in early {N} versions.
      * Now attributes are expected to be set as plain properties on the view instances.
-     * @deprecated
      */
     public _applyXmlAttribute(attribute, value): boolean;
     public setInlineStyle(style: string): void;
 
     _context: any /* android.content.Context */;
 
-    /** 
+    /**
      * Setups the UI for ViewBase and all its children recursively.
      * This method should *not* be overridden by derived views.
      */

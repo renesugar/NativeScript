@@ -3,25 +3,25 @@ import { Font } from "../styling/font";
 
 import {
     TabViewBase, TabViewItemBase, itemsProperty, selectedIndexProperty,
-    tabTextColorProperty, tabBackgroundColorProperty, selectedTabTextColorProperty,
+    tabTextColorProperty, tabBackgroundColorProperty, tabTextFontSizeProperty, selectedTabTextColorProperty,
     androidSelectedTabHighlightColorProperty, androidOffscreenTabLimitProperty,
-    fontSizeProperty, fontInternalProperty, View, layout, traceCategory, traceEnabled,
-    traceWrite, Color
+    fontSizeProperty, fontInternalProperty, layout, traceCategory, traceEnabled,
+    traceWrite, Color, traceMissingIcon
 } from "./tab-view-common"
 import { textTransformProperty, TextTransform, getTransformedText } from "../text-base";
 import { fromFileOrResource } from "../../image-source";
 import { RESOURCE_PREFIX, ad } from "../../utils/utils";
 import { Frame } from "../frame";
+import * as application from "../../application";
 
 export * from "./tab-view-common";
 
-const VIEWS_STATES = "_viewStates";
 const ACCENT_COLOR = "colorAccent";
 const PRIMARY_COLOR = "colorPrimary";
 const DEFAULT_ELEVATION = 4;
 
 interface PagerAdapter {
-    new(owner: TabView): android.support.v4.view.PagerAdapter;
+    new(owner: TabView): androidx.viewpager.widget.PagerAdapter;
 }
 
 const TABID = "_tabId";
@@ -46,7 +46,7 @@ function initializeNativeClasses() {
         return;
     }
 
-    class TabFragmentImplementation extends android.app.Fragment {
+    class TabFragmentImplementation extends org.nativescript.widgets.FragmentBase {
         private tab: TabView;
         private index: number;
 
@@ -56,7 +56,6 @@ function initializeNativeClasses() {
         }
 
         static newInstance(tabId: number, index: number): TabFragmentImplementation {
-
             const args = new android.os.Bundle();
             args.putInt(TABID, tabId);
             args.putInt(INDEX, index);
@@ -80,19 +79,15 @@ function initializeNativeClasses() {
 
             return tabItem.view.nativeViewProtected;
         }
-
-        public onDestroyView() {
-            super.onDestroyView();
-        }
     }
 
     const POSITION_UNCHANGED = -1;
     const POSITION_NONE = -2;
 
-    class FragmentPagerAdapter extends android.support.v4.view.PagerAdapter {
+    class FragmentPagerAdapter extends androidx.viewpager.widget.PagerAdapter {
         public items: Array<TabViewItemDefinition>;
-        private mCurTransaction: android.app.FragmentTransaction;
-        private mCurrentPrimaryItem: android.app.Fragment;
+        private mCurTransaction: androidx.fragment.app.FragmentTransaction;
+        private mCurrentPrimaryItem: androidx.fragment.app.Fragment;
 
         constructor(public owner: TabView) {
             super();
@@ -128,7 +123,7 @@ function initializeNativeClasses() {
             const itemId = this.getItemId(position);
             const name = makeFragmentName(container.getId(), itemId);
 
-            let fragment: android.app.Fragment = fragmentManager.findFragmentByTag(name);
+            let fragment: androidx.fragment.app.Fragment = fragmentManager.findFragmentByTag(name);
             if (fragment != null) {
                 this.mCurTransaction.attach(fragment);
             } else {
@@ -160,7 +155,7 @@ function initializeNativeClasses() {
                 this.mCurTransaction = fragmentManager.beginTransaction();
             }
 
-            const fragment: android.app.Fragment = <android.app.Fragment>object;
+            const fragment: androidx.fragment.app.Fragment = <androidx.fragment.app.Fragment>object;
             this.mCurTransaction.detach(fragment);
 
             if (this.mCurrentPrimaryItem === fragment) {
@@ -175,7 +170,7 @@ function initializeNativeClasses() {
         }
 
         setPrimaryItem(container: android.view.ViewGroup, position: number, object: java.lang.Object): void {
-            const fragment = <android.app.Fragment>object;
+            const fragment = <androidx.fragment.app.Fragment>object;
             if (fragment !== this.mCurrentPrimaryItem) {
                 if (this.mCurrentPrimaryItem != null) {
                     this.mCurrentPrimaryItem.setMenuVisibility(false);
@@ -201,23 +196,17 @@ function initializeNativeClasses() {
         }
 
         finishUpdate(container: android.view.ViewGroup): void {
-            if (this.mCurTransaction != null) {
-                if (android.os.Build.VERSION.SDK_INT >= 24) {
-                    (<any>this.mCurTransaction).commitNowAllowingStateLoss();
-                } else {
-                    this.mCurTransaction.commitAllowingStateLoss();
-                    this.owner._getFragmentManager().executePendingTransactions();
-                }
-
-                this.mCurTransaction = null;
-            }
+            this._commitCurrentTransaction();
         }
 
         isViewFromObject(view: android.view.View, object: java.lang.Object): boolean {
-            return (<android.app.Fragment>object).getView() === view;
+            return (<androidx.fragment.app.Fragment>object).getView() === view;
         }
 
         saveState(): android.os.Parcelable {
+            // Commit the current transaction on save to prevent "No view found for id 0xa" exception on restore.
+            // Related to: https://github.com/NativeScript/NativeScript/issues/6466
+            this._commitCurrentTransaction();
             return null;
         }
 
@@ -228,8 +217,15 @@ function initializeNativeClasses() {
         getItemId(position: number): number {
             return position;
         }
-    }
 
+        private _commitCurrentTransaction() {
+            if (this.mCurTransaction != null) {
+                this.mCurTransaction.commitNowAllowingStateLoss();
+                this.mCurTransaction = null;
+            }
+        }
+    }
+    
     PagerAdapter = FragmentPagerAdapter;
 }
 
@@ -240,11 +236,16 @@ function createTabItemSpec(item: TabViewItem): org.nativescript.widgets.TabItemS
     if (item.iconSource) {
         if (item.iconSource.indexOf(RESOURCE_PREFIX) === 0) {
             result.iconId = ad.resources.getDrawableId(item.iconSource.substr(RESOURCE_PREFIX.length));
+            if (result.iconId === 0) {
+                traceMissingIcon(item.iconSource);
+            }
         } else {
             const is = fromFileOrResource(item.iconSource);
             if (is) {
                 // TODO: Make this native call that accepts string so that we don't load Bitmap in JS.
-                result.iconDrawable = new android.graphics.drawable.BitmapDrawable(is.android);
+                result.iconDrawable = new android.graphics.drawable.BitmapDrawable(application.android.context.getResources(), is.android);
+            } else {
+                traceMissingIcon(item.iconSource);
             }
         }
     }
@@ -266,6 +267,10 @@ export class TabViewItem extends TabViewItemBase {
     public tabItemSpec: org.nativescript.widgets.TabItemSpec;
     public index: number;
     private _defaultTransformationMethod: android.text.method.TransformationMethod;
+
+    get _hasFragments(): boolean {
+        return true;
+    }
 
     public initNativeView(): void {
         super.initNativeView();
@@ -304,6 +309,29 @@ export class TabViewItem extends TabViewItemBase {
         }
     }
 
+    public _getChildFragmentManager(): androidx.fragment.app.FragmentManager {
+        const tabView = this.parent as TabView;
+        let tabFragment = null;
+        const fragmentManager = tabView._getFragmentManager();
+        for (let fragment of (<Array<any>>fragmentManager.getFragments().toArray())) {
+            if (fragment.index === this.index) {
+                tabFragment = fragment;
+                break;
+            }
+        }
+
+        // TODO: can happen in a modal tabview scenario when the modal dialog fragment is already removed
+        if (!tabFragment) {
+            if (traceEnabled()) {
+                traceWrite(`Could not get child fragment manager for tab item with index ${this.index}`, traceCategory);
+            }
+
+            return (<any>tabView)._getRootFragmentManager();
+        }
+
+        return tabFragment.getChildFragmentManager();
+    }
+
     [fontSizeProperty.getDefault](): { nativeSize: number } {
         return { nativeSize: this.nativeViewProtected.getTextSize() };
     }
@@ -339,7 +367,7 @@ export class TabViewItem extends TabViewItemBase {
 }
 
 function setElevation(grid: org.nativescript.widgets.GridLayout, tabLayout: org.nativescript.widgets.TabLayout) {
-    const compat = <any>android.support.v4.view.ViewCompat;
+    const compat = <any>androidx.core.view.ViewCompat;
     if (compat.setElevation) {
         const val = DEFAULT_ELEVATION * layout.getDisplayDensity();
         compat.setElevation(grid, val);
@@ -359,13 +387,17 @@ function iterateIndexRange(index: number, eps: number, lastIndex: number, callba
 
 export class TabView extends TabViewBase {
     private _tabLayout: org.nativescript.widgets.TabLayout;
-    private _viewPager: android.support.v4.view.ViewPager;
-    private _pagerAdapter: android.support.v4.view.PagerAdapter;
+    private _viewPager: androidx.viewpager.widget.ViewPager;
+    private _pagerAdapter: androidx.viewpager.widget.PagerAdapter;
     private _androidViewId: number = -1;
 
     constructor() {
         super();
         tabs.push(new WeakRef(this));
+    }
+
+    get _hasFragments(): boolean {
+        return true;
     }
 
     public onItemsChanged(oldItems: TabViewItem[], newItems: TabViewItem[]): void {
@@ -401,6 +433,10 @@ export class TabView extends TabViewBase {
             nativeView.addRow(new org.nativescript.widgets.ItemSpec(1, org.nativescript.widgets.GridUnitType.star));
 
             viewPager.setLayoutParams(lp);
+
+            if (!this.androidSwipeEnabled) {
+                viewPager.setSwipePageEnabled(false);
+            }
         } else {
             nativeView.addRow(new org.nativescript.widgets.ItemSpec(1, org.nativescript.widgets.GridUnitType.star));
             nativeView.addRow(new org.nativescript.widgets.ItemSpec(1, org.nativescript.widgets.GridUnitType.auto));
@@ -453,7 +489,7 @@ export class TabView extends TabViewBase {
     public _loadUnloadTabItems(newIndex: number) {
         const items = this.items;
         const lastIndex = this.items.length - 1;
-        const offsideItems = this.androidTabsPosition === "top" ? this.androidOffscreenTabLimit : 0;
+        const offsideItems = this.androidTabsPosition === "top" ? this.androidOffscreenTabLimit : 1;
 
         let toUnload = [];
         let toLoad = [];
@@ -477,7 +513,7 @@ export class TabView extends TabViewBase {
         const newItem = items[newIndex];
         const selectedView = newItem && newItem.view;
         if (selectedView instanceof Frame) {
-            selectedView._pushInFrameStack();
+            selectedView._pushInFrameStackRecursive();
         }
 
         toLoad.forEach(index => {
@@ -510,13 +546,23 @@ export class TabView extends TabViewBase {
         super.disposeNativeView();
     }
 
-    public _onBackPressed(): boolean {
-        const currentView = this._selectedView;
-        if (currentView) {
-            return currentView._onBackPressed();
-        }
+    public _onRootViewReset(): void {
+        super._onRootViewReset();
+        
+        // call this AFTER the super call to ensure descendants apply their rootview-reset logic first
+        // i.e. in a scenario with tab frames let the frames cleanup their fragments first, and then
+        // cleanup the tab fragments to avoid
+        // android.content.res.Resources$NotFoundException: Unable to find resource ID #0xfffffff6
+        this.disposeCurrentFragments();
+    }
 
-        return false;
+    private disposeCurrentFragments(): void {
+        const fragmentManager = this._getFragmentManager();
+        const transaction = fragmentManager.beginTransaction();
+        for (let fragment of (<Array<any>>fragmentManager.getFragments().toArray())) {
+            transaction.remove(fragment);
+        }
+        transaction.commitNowAllowingStateLoss();
     }
 
     private shouldUpdateAdapter(items: Array<TabViewItemDefinition>) {
@@ -598,11 +644,13 @@ export class TabView extends TabViewBase {
     }
 
     [selectedIndexProperty.setNative](value: number) {
+        const smoothScroll = this.androidTabsPosition === "top";
+
         if (traceEnabled()) {
-            traceWrite("TabView this._viewPager.setCurrentItem(" + value + ", true);", traceCategory);
+            traceWrite("TabView this._viewPager.setCurrentItem(" + value + ", " + smoothScroll + ");", traceCategory);
         }
 
-        this._viewPager.setCurrentItem(value, true);
+        this._viewPager.setCurrentItem(value, smoothScroll);
     }
 
     [itemsProperty.getDefault](): TabViewItem[] {
@@ -621,6 +669,17 @@ export class TabView extends TabViewBase {
             this._tabLayout.setBackgroundColor(value.android);
         } else {
             this._tabLayout.setBackground(tryCloneDrawable(value, this.nativeViewProtected.getResources));
+        }
+    }
+
+    [tabTextFontSizeProperty.getDefault](): number {
+        return this._tabLayout.getTabTextFontSize();
+    }
+    [tabTextFontSizeProperty.setNative](value: number | { nativeSize: number }) {
+        if (typeof value === "number") {
+            this._tabLayout.setTabTextFontSize(value);
+        } else {
+            this._tabLayout.setTabTextFontSize(value.nativeSize);
         }
     }
 

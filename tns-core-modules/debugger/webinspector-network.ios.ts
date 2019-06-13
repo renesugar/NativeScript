@@ -1,31 +1,18 @@
 import * as inspectorCommandTypes from "./InspectorBackendCommands.ios";
-var inspectorCommands: typeof inspectorCommandTypes = require("./InspectorBackendCommands");
+const inspectorCommands: typeof inspectorCommandTypes = require("./InspectorBackendCommands");
 
 import * as debuggerDomains from "./debugger";
 
 declare var __inspectorSendEvent;
-/**
- * Checks if the property is a function and if it is, calls it on this.
- * Designed to support backward compatibility for methods that became properties.
- * Will not work on delegates since it checks if the propertyValue is a function, and delegates are marshalled as functions.
- * Example: getter(NSRunLoop, NSRunLoop.currentRunLoop).runUntilDate(NSDate.dateWithTimeIntervalSinceNow(waitTime));
- */
-function getter<T>(_this: any, property: T | {(): T}): T {
-    if (typeof property === "function") {
-        return (<{(): T}>property).call(_this);
-    } else {
-        return <T>property;
-    }
-}
 
 declare var __inspectorTimestamp;
 
 const frameId = "NativeScriptMainFrameIdentifier";
 const loaderId = "Loader Identifier";
 
-var resources_datas = [];
+const resources_datas = [];
 
-var documentTypeByMimeType = {
+const documentTypeByMimeType = {
     "text/xml": "Document",
     "text/plain": "Document",
     "text/html": "Document",
@@ -64,16 +51,16 @@ export class Request {
                 this._resourceType = "Other";
                 return;
             }
-            
+
             this._mimeType = value;
 
-            var resourceType = "Other";
+            let resourceType = "Other";
 
             if (this._mimeType in documentTypeByMimeType) {
                 resourceType = documentTypeByMimeType[this._mimeType];
             }
 
-            if(this._mimeType.indexOf("image/") !== -1) {
+            if (this._mimeType.indexOf("image/") !== -1) {
                 resourceType = "Image";
             }
 
@@ -112,22 +99,22 @@ export class Request {
                 this._resourceType = value;
         }
     }
-    
+
     public responseReceived(response: inspectorCommandTypes.NetworkDomain.Response): void {
         if (this._networkDomainDebugger.enabled) {
             this._networkDomainDebugger.events.responseReceived(this.requestID, frameId, loaderId, __inspectorTimestamp(), <any>this.resourceType, response);
         }
     }
-    
+
     public loadingFinished(): void {
         if (this._networkDomainDebugger.enabled) {
             this._networkDomainDebugger.events.loadingFinished(this.requestID, __inspectorTimestamp());
         }
     }
-    
+
     public requestWillBeSent(request: inspectorCommandTypes.NetworkDomain.Request): void {
         if (this._networkDomainDebugger.enabled) {
-            this._networkDomainDebugger.events.requestWillBeSent(this.requestID, frameId, loaderId, request.url, request, __inspectorTimestamp(), { type: 'Script' });
+            this._networkDomainDebugger.events.requestWillBeSent(this.requestID, frameId, loaderId, request.url, request, __inspectorTimestamp(), { type: "Script" });
         }
     }
 }
@@ -136,9 +123,13 @@ export class Request {
 export class NetworkDomainDebugger implements inspectorCommandTypes.NetworkDomain.NetworkDomainDispatcher {
     private _enabled: boolean;
     public events: inspectorCommandTypes.NetworkDomain.NetworkFrontend;
-   
+
     constructor() {
         this.events = new inspectorCommands.NetworkDomain.NetworkFrontend();
+
+        // By default start enabled because we can miss the "enable" event when
+        // running with `--debug-brk` -- the frontend will send it before we've been created
+        this.enable();
     }
 
     get enabled(): boolean {
@@ -156,7 +147,7 @@ export class NetworkDomainDebugger implements inspectorCommandTypes.NetworkDomai
         }
         this._enabled = true;
     }
-    
+
     /**
      * Disables network tracking, prevents network events from being sent to the client.
      */
@@ -166,30 +157,30 @@ export class NetworkDomainDebugger implements inspectorCommandTypes.NetworkDomai
         }
         this._enabled = false;
     }
-    
+
     /**
      * Specifies whether to always send extra HTTP headers with the requests from this page.
      */
     setExtraHTTPHeaders(params: inspectorCommandTypes.NetworkDomain.SetExtraHTTPHeadersMethodArguments): void {
         //
     }
-    
+
     /**
      * Returns content served for the given request.
      */
     getResponseBody(params: inspectorCommandTypes.NetworkDomain.GetResponseBodyMethodArguments): { body: string, base64Encoded: boolean } {
-        var resource_data = resources_datas[params.requestId];
-        var body = resource_data.hasTextContent ? NSString.alloc().initWithDataEncoding(resource_data.data, 4).toString() :
+        const resource_data = resources_datas[params.requestId];
+        const body = resource_data.hasTextContent ? NSString.alloc().initWithDataEncoding(resource_data.data, 4).toString() :
                     resource_data.data.base64EncodedStringWithOptions(0);
 
-        if(resource_data) {
+        if (resource_data) {
              return {
                  body: body,
                  base64Encoded: !resource_data.hasTextContent
              };
-        } 
+        }
     }
-    
+
     /**
      * Tells whether clearing browser cache is supported.
      */
@@ -198,14 +189,14 @@ export class NetworkDomainDebugger implements inspectorCommandTypes.NetworkDomai
             result: false
         };
     }
-    
+
     /**
      * Clears browser cache.
      */
     clearBrowserCache(): void {
         //
     }
-    
+
     /**
      * Tells whether clearing browser cookies is supported.
      */
@@ -214,28 +205,28 @@ export class NetworkDomainDebugger implements inspectorCommandTypes.NetworkDomai
             result: false
         };
     }
-    
+
     /**
      * Clears browser cookies.
      */
     clearBrowserCookies(): void {
         //
     }
-    
+
     /**
      * Toggles ignoring cache for each request. If <code>true</code>, cache will not be used.
      */
     setCacheDisabled(params: inspectorCommandTypes.NetworkDomain.SetCacheDisabledMethodArguments): void {
         //
     }
-    
+
     /**
      * Loads a resource in the context of a frame on the inspected page without cross origin checks.
      */
     loadResource(params: inspectorCommandTypes.NetworkDomain.LoadResourceMethodArguments): { content: string, mimeType: string, status: number } {
-        let appPath = getter(NSBundle, NSBundle.mainBundle).bundlePath;
+        let appPath = NSBundle.mainBundle.bundlePath;
         let pathUrl = params.url.replace("file://", appPath);
-        let fileManager = getter(NSFileManager, NSFileManager.defaultManager);
+        let fileManager = NSFileManager.defaultManager;
         let data = fileManager.fileExistsAtPath(pathUrl) ? fileManager.contentsAtPath(pathUrl) : undefined;
         let content = data ? NSString.alloc().initWithDataEncoding(data, NSUTF8StringEncoding) : "";
 
@@ -245,7 +236,7 @@ export class NetworkDomainDebugger implements inspectorCommandTypes.NetworkDomai
             status: 200
         }
     }
-    
+
     public static idSequence: number = 0;
     create(): Request {
         let id = (++NetworkDomainDebugger.idSequence).toString();

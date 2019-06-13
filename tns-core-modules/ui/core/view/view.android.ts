@@ -1,14 +1,12 @@
 // Definitions.
-import { ViewBase } from "../view-base";
 import { Point, CustomLayoutView as CustomLayoutViewDefinition, dip } from ".";
 import { GestureTypes, GestureEventData } from "../../gestures";
-import { AndroidActivityBackPressedEventData } from "../../../application";
 // Types.
 import {
     ViewCommon, layout, isEnabledProperty, originXProperty, originYProperty, automationTextProperty, isUserInteractionEnabledProperty,
     traceEnabled, traceWrite, traceCategories, traceNotifyEvent,
     paddingLeftProperty, paddingTopProperty, paddingRightProperty, paddingBottomProperty,
-    Color
+    Color, EventData, ShowModalOptions
 } from "./view-common";
 
 import {
@@ -17,28 +15,37 @@ import {
     minWidthProperty, minHeightProperty, widthProperty, heightProperty,
     marginLeftProperty, marginTopProperty, marginRightProperty, marginBottomProperty,
     rotateProperty, scaleXProperty, scaleYProperty, translateXProperty, translateYProperty,
-    zIndexProperty, backgroundInternalProperty
+    zIndexProperty, backgroundInternalProperty, androidElevationProperty, androidDynamicElevationOffsetProperty
 } from "../../styling/style-properties";
 
 import { Background, ad as androidBackground } from "../../styling/background";
 import { profile } from "../../../profiling";
+import { topmost } from "../../frame/frame-stack";
+import { AndroidActivityBackPressedEventData, android as androidApp } from "../../../application";
+import { device } from "../../../platform";
+import lazy from "../../../utils/lazy";
 
 export * from "./view-common";
 
 const DOMID = "_domId";
 const androidBackPressedEvent = "androidBackPressed";
 
+const shortAnimTime = 17694720; // android.R.integer.config_shortAnimTime
+const statePressed = 16842919; // android.R.attr.state_pressed
+const stateEnabled = 16842910; // android.R.attr.state_enabled
+
+const sdkVersion = lazy(() => parseInt(device.sdkVersion));
+
 const modalMap = new Map<number, DialogOptions>();
 
 let TouchListener: TouchListener;
-let disableUserInteractionListener: org.nativescript.widgets.DisableUserInteractionListener;
 let DialogFragment: DialogFragment;
-let Dialog: android.app.Dialog;
 
 interface DialogOptions {
     owner: View;
     fullscreen: boolean;
     stretched: boolean;
+    cancelable: boolean;
     shownCallback: () => void;
     dismissCallback: () => void;
 }
@@ -48,15 +55,7 @@ interface TouchListener {
 }
 
 interface DialogFragment {
-    new(): android.app.DialogFragment;
-}
-
-function initializeDisabledListener(): void {
-    if (disableUserInteractionListener) {
-        return;
-    }
-
-    disableUserInteractionListener = new org.nativescript.widgets.DisableUserInteractionListener();
+    new(): androidx.fragment.app.DialogFragment;
 }
 
 function initializeTouchListener(): void {
@@ -66,19 +65,20 @@ function initializeTouchListener(): void {
 
     @Interfaces([android.view.View.OnTouchListener])
     class TouchListenerImpl extends java.lang.Object implements android.view.View.OnTouchListener {
-        constructor(private owner: View) {
+        private owner: WeakRef<View>;
+        constructor(owner: View) {
             super();
+            this.owner = new WeakRef(owner);
+
             return global.__native(this);
         }
 
         onTouch(view: android.view.View, event: android.view.MotionEvent): boolean {
-            const owner = this.owner;
-            for (let type in owner._gestureObservers) {
-                let list = owner._gestureObservers[type];
-                list.forEach(element => {
-                    element.androidOnTouchEvent(event);
-                });
+            const owner = this.owner.get();
+            if (!owner) {
+                return;
             }
+            owner.handleGestureTouch(event);
 
             let nativeView = owner.nativeViewProtected;
             if (!nativeView || !nativeView.onTouchEvent) {
@@ -105,6 +105,11 @@ function initializeDialogFragment() {
             return global.__native(this);
         }
 
+        public onDetachedFromWindow(): void {
+            super.onDetachedFromWindow();
+            this.fragment = null;
+        };
+
         public onBackPressed(): void {
             const view = this.fragment.owner;
             const args = <AndroidActivityBackPressedEventData>{
@@ -113,18 +118,26 @@ function initializeDialogFragment() {
                 activity: view._context,
                 cancel: false,
             };
+
+            // Fist fire application.android global event
+            androidApp.notify(args);
+            if (args.cancel) {
+                return;
+            }
+
             view.notify(args);
 
-            if (!args.cancel && !view._onBackPressed()) {
+            if (!args.cancel && !view.onBackPressed()) {
                 super.onBackPressed();
             }
         }
     }
 
-    class DialogFragmentImpl extends android.app.DialogFragment {
+    class DialogFragmentImpl extends androidx.fragment.app.DialogFragment {
         public owner: View;
         private _fullscreen: boolean;
         private _stretched: boolean;
+        private _cancelable: boolean;
         private _shownCallback: () => void;
         private _dismissCallback: () => void;
 
@@ -138,17 +151,23 @@ function initializeDialogFragment() {
             const options = getModalOptions(ownerId);
             this.owner = options.owner;
             this._fullscreen = options.fullscreen;
+            this._cancelable = options.cancelable;
             this._stretched = options.stretched;
             this._dismissCallback = options.dismissCallback;
             this._shownCallback = options.shownCallback;
-            this.owner._dialogFragment = this;
-            this.setStyle(android.app.DialogFragment.STYLE_NO_TITLE, 0);
+            this.setStyle(androidx.fragment.app.DialogFragment.STYLE_NO_TITLE, 0);
 
-            const dialog = new DialogImpl(this, this.getActivity(), this.getTheme());
+            let theme = this.getTheme();
+            if (this._fullscreen) {
+                // In fullscreen mode, get the application's theme.
+                theme = this.getActivity().getApplicationInfo().theme;
+            }
 
-            // do not override alignment unless fullscreen modal will be shown; 
+            const dialog = new DialogImpl(this, this.getActivity(), theme);
+
+            // do not override alignment unless fullscreen modal will be shown;
             // otherwise we might break component-level layout:
-            // https://github.com/NativeScript/NativeScript/issues/5392 
+            // https://github.com/NativeScript/NativeScript/issues/5392
             if (!this._fullscreen && !this._stretched) {
                 this.owner.horizontalAlignment = "center";
                 this.owner.verticalAlignment = "middle";
@@ -157,6 +176,7 @@ function initializeDialogFragment() {
                 this.owner.verticalAlignment = "stretch";
             }
 
+            dialog.setCanceledOnTouchOutside(this._cancelable);
             return dialog;
         }
 
@@ -179,14 +199,14 @@ function initializeDialogFragment() {
             }
 
             const owner = this.owner;
-            if (!owner.isLoaded) {
+            if (owner && !owner.isLoaded) {
                 owner.callLoaded();
             }
 
             this._shownCallback();
         }
 
-        public onDismiss(dialog: android.content.IDialogInterface): void {
+        public onDismiss(dialog: android.content.DialogInterface): void {
             super.onDismiss(dialog);
             const manager = this.getFragmentManager();
             if (manager) {
@@ -195,7 +215,7 @@ function initializeDialogFragment() {
             }
 
             const owner = this.owner;
-            if (owner.isLoaded) {
+            if (owner && owner.isLoaded) {
                 owner.callUnloaded();
             }
         }
@@ -203,8 +223,17 @@ function initializeDialogFragment() {
         public onDestroy(): void {
             super.onDestroy();
             const owner = this.owner;
-            owner._isAddedToNativeVisualTree = false;
-            owner._tearDownUI(true);
+
+            if (owner) {
+                // Android calls onDestroy before onDismiss.
+                // Make sure we unload first and then call _tearDownUI.
+                if (owner.isLoaded) {
+                    owner.callUnloaded();
+                }
+
+                owner._isAddedToNativeVisualTree = false;
+                owner._tearDownUI(true);
+            }
         }
     }
 
@@ -226,11 +255,16 @@ function getModalOptions(domId: number): DialogOptions {
 export class View extends ViewCommon {
     public static androidBackPressedEvent = androidBackPressedEvent;
 
-    public _dialogFragment: android.app.DialogFragment;
+    public _dialogFragment: androidx.fragment.app.DialogFragment;
     private _isClickable: boolean;
     private touchListenerIsSet: boolean;
     private touchListener: android.view.View.OnTouchListener;
-    private _manager: android.app.FragmentManager;
+    private layoutChangeListenerIsSet: boolean;
+    private layoutChangeListener: android.view.View.OnLayoutChangeListener;
+    private _manager: androidx.fragment.app.FragmentManager;
+    private _rootManager: androidx.fragment.app.FragmentManager;
+    private _originalElevation: number;
+    private _originalStateListAnimator: any; /* android.animation.StateListAnimator; */
 
     nativeViewProtected: android.view.View;
 
@@ -242,24 +276,76 @@ export class View extends ViewCommon {
         }
     }
 
-    public _getFragmentManager(): android.app.FragmentManager {
+    on(eventNames: string, callback: (data: EventData) => void, thisArg?: any) {
+        super.on(eventNames, callback, thisArg);
+        const isLayoutEvent = typeof eventNames === "string" ? eventNames.indexOf(ViewCommon.layoutChangedEvent) !== -1 : false;
+
+        if (this.isLoaded && !this.layoutChangeListenerIsSet && isLayoutEvent) {
+            this.setOnLayoutChangeListener();
+        }
+    }
+
+    off(eventNames: string, callback?: any, thisArg?: any) {
+        super.off(eventNames, callback, thisArg);
+        const isLayoutEvent = typeof eventNames === "string" ? eventNames.indexOf(ViewCommon.layoutChangedEvent) !== -1 : false;
+
+        // Remove native listener only if there are no more user listeners for LayoutChanged event
+        if (this.isLoaded && this.layoutChangeListenerIsSet && isLayoutEvent && !this.hasListeners(ViewCommon.layoutChangedEvent)) {
+            this.nativeViewProtected.removeOnLayoutChangeListener(this.layoutChangeListener);
+            this.layoutChangeListenerIsSet = false;
+        }
+    }
+
+    public _getChildFragmentManager(): androidx.fragment.app.FragmentManager {
+        return null;
+    }
+
+    public _getRootFragmentManager(): androidx.fragment.app.FragmentManager {
+        if (!this._rootManager && this._context) {
+            this._rootManager = (<androidx.fragment.app.FragmentActivity>this._context).getSupportFragmentManager();
+        }
+
+        return this._rootManager;
+    }
+
+    public _getFragmentManager(): androidx.fragment.app.FragmentManager {
         let manager = this._manager;
         if (!manager) {
             let view: View = this;
+            let frameOrTabViewItemFound = false;
             while (view) {
+                // when interacting with nested fragments instead of using getSupportFragmentManager
+                // we must always use getChildFragmentManager instead;
+                // we have three sources of fragments -- Frame fragments, TabViewItem fragments, and
+                // modal dialog fragments
+
+                // modal -> frame / tabview (frame / tabview use modal CHILD fm)
                 const dialogFragment = view._dialogFragment;
                 if (dialogFragment) {
                     manager = dialogFragment.getChildFragmentManager();
                     break;
-                } else {
-                    // the case is needed because _dialogFragment is on View
-                    // but parent may be ViewBase.
-                    view = view.parent as View;
                 }
+
+                // - frame1 -> frame2 (frame2 uses frame1 CHILD fm)
+                // - tabview -> frame1 (frame1 uses tabview item CHILD fm)
+                // - frame1 -> tabview (tabview uses frame1 CHILD fm)
+                // - frame1 -> tabview -> frame2 (tabview uses frame1 CHILD fm; frame2 uses tabview item CHILD fm)
+                if (view._hasFragments) {
+                    if (frameOrTabViewItemFound) {
+                        manager = view._getChildFragmentManager();
+                        break;
+                    }
+
+                    frameOrTabViewItemFound = true;
+                }
+
+                // the case is needed because _dialogFragment is on View
+                // but parent may be ViewBase.
+                view = view.parent as View;
             }
 
-            if (!manager && this._context) {
-                manager = (<android.app.Activity>this._context).getFragmentManager();
+            if (!manager) {
+                manager = this._getRootFragmentManager();
             }
 
             this._manager = manager;
@@ -271,6 +357,7 @@ export class View extends ViewCommon {
     @profile
     public onLoaded() {
         this._manager = null;
+        this._rootManager = null;
         super.onLoaded();
         this.setOnTouchListener();
     }
@@ -284,7 +371,32 @@ export class View extends ViewCommon {
         }
 
         this._manager = null;
+        this._rootManager = null;
         super.onUnloaded();
+    }
+
+    public onBackPressed(): boolean {
+        let topmostFrame = topmost();
+
+        // Delegate back navigation handling to the topmost Frame
+        // when it's a child of the current View.
+        if (topmostFrame && topmostFrame._hasAncestorView(this)) {
+            return topmostFrame.onBackPressed();
+        }
+
+        return false;
+    }
+
+    public handleGestureTouch(event: android.view.MotionEvent): any {
+        for (let type in this._gestureObservers) {
+            let list = this._gestureObservers[type];
+            list.forEach(element => {
+                element.androidOnTouchEvent(event);
+            });
+        }
+        if (this.parent instanceof View) {
+            this.parent.handleGestureTouch(event);
+        }
     }
 
     private hasGestureObservers() {
@@ -294,18 +406,55 @@ export class View extends ViewCommon {
     public initNativeView(): void {
         super.initNativeView();
         this._isClickable = this.nativeViewProtected.isClickable();
+
+        if (this.hasListeners(ViewCommon.layoutChangedEvent)) {
+            this.setOnLayoutChangeListener();
+        }
+    }
+
+    public disposeNativeView(): void {
+        super.disposeNativeView();
+
+        if (this.layoutChangeListenerIsSet) {
+            this.layoutChangeListenerIsSet = false;
+            this.nativeViewProtected.removeOnLayoutChangeListener(this.layoutChangeListener);
+        }
     }
 
     private setOnTouchListener() {
-        if (this.nativeViewProtected && this.hasGestureObservers()) {
-            this.touchListenerIsSet = true;
-            if (this.nativeViewProtected.setClickable) {
-                this.nativeViewProtected.setClickable(true);
-            }
+        if (!this.nativeViewProtected || !this.hasGestureObservers()) {
+            return;
+        }
 
-            initializeTouchListener();
-            this.touchListener = this.touchListener || new TouchListener(this);
-            this.nativeViewProtected.setOnTouchListener(this.touchListener);
+        // do not set noop listener that handles the event (disabled listener) if IsUserInteractionEnabled is
+        // false as we might need the ability for the event to pass through to a parent view
+        initializeTouchListener();
+        this.touchListener = this.touchListener || new TouchListener(this);
+        this.nativeViewProtected.setOnTouchListener(this.touchListener);
+
+        this.touchListenerIsSet = true;
+
+        if (this.nativeViewProtected.setClickable) {
+            this.nativeViewProtected.setClickable(this.isUserInteractionEnabled);
+        }
+    }
+
+    private setOnLayoutChangeListener() {
+        if (this.nativeViewProtected) {
+            const owner = this;
+            this.layoutChangeListenerIsSet = true;
+            this.layoutChangeListener = this.layoutChangeListener || new android.view.View.OnLayoutChangeListener({
+                onLayoutChange(
+                    v: android.view.View,
+                    left: number, top: number, right: number, bottom: number,
+                    oldLeft: number, oldTop: number, oldRight: number, oldBottom: number): void {
+                    if (left !== oldLeft || top !== oldTop || right !== oldRight || bottom !== oldBottom) {
+                        owner._raiseLayoutChangedEvent();
+                    }
+                }
+            });
+
+            this.nativeViewProtected.addOnLayoutChangeListener(this.layoutChangeListener);
         }
     }
 
@@ -318,6 +467,10 @@ export class View extends ViewCommon {
             return !this.nativeViewProtected.isLayoutRequested();
         }
 
+        return false;
+    }
+
+    get _hasFragments(): boolean {
         return false;
     }
 
@@ -425,7 +578,7 @@ export class View extends ViewCommon {
 
     public getLocationRelativeTo(otherView: ViewCommon): Point {
         if (!this.nativeViewProtected || !this.nativeViewProtected.getWindowToken() ||
-            !otherView.nativeViewProtected || !otherView.nativeViewProtected.getWindowToken() ||
+            !otherView || !otherView.nativeViewProtected || !otherView.nativeViewProtected.getWindowToken() ||
             this.nativeViewProtected.getWindowToken() !== otherView.nativeViewProtected.getWindowToken()) {
             return undefined;
         }
@@ -460,9 +613,8 @@ export class View extends ViewCommon {
 
         return result | (childMeasuredState & layout.MEASURED_STATE_MASK);
     }
-
-    protected _showNativeModalView(parent: View, context: any, closeCallback: Function, fullscreen?: boolean, animated?: boolean, stretched?: boolean) {
-        super._showNativeModalView(parent, context, closeCallback, fullscreen, stretched);
+    protected _showNativeModalView(parent: View, options: ShowModalOptions) {
+        super._showNativeModalView(parent, options);
         if (!this.backgroundColor) {
             this.backgroundColor = new Color("White");
         }
@@ -476,8 +628,9 @@ export class View extends ViewCommon {
 
         const dialogOptions: DialogOptions = {
             owner: this,
-            fullscreen: !!fullscreen,
-            stretched: !!stretched,
+            fullscreen: !!options.fullscreen,
+            stretched: !!options.stretched,
+            cancelable: options.android ? !!options.android.cancelable : true,
             shownCallback: () => this._raiseShownModallyEvent(),
             dismissCallback: () => this.closeModal()
         }
@@ -487,17 +640,17 @@ export class View extends ViewCommon {
         this._dialogFragment = df;
         this._raiseShowingModallyEvent();
 
-        this._dialogFragment.show(parent._getFragmentManager(), this._domId.toString());
+        this._dialogFragment.show(parent._getRootFragmentManager(), this._domId.toString());
     }
 
-    protected _hideNativeModalView(parent: View) {
+    protected _hideNativeModalView(parent: View, whenClosedCallback: () => void) {
         const manager = this._dialogFragment.getFragmentManager();
         if (manager) {
             this._dialogFragment.dismissAllowingStateLoss();
         }
 
         this._dialogFragment = null;
-        super._hideNativeModalView(parent);
+        whenClosedCallback();
     }
 
     [isEnabledProperty.setNative](value: boolean) {
@@ -526,16 +679,8 @@ export class View extends ViewCommon {
     }
 
     [isUserInteractionEnabledProperty.setNative](value: boolean) {
-        if (!value) {
-            initializeDisabledListener();
-            // User interaction is disabled -- we stop it and we do not care whether someone wants to listen for gestures.
-            this.nativeViewProtected.setOnTouchListener(disableUserInteractionListener);
-        } else {
-            this.setOnTouchListener();
-            if (!this.touchListenerIsSet) {
-                this.nativeViewProtected.setOnTouchListener(null);
-            }
-        }
+        this.nativeViewProtected.setClickable(value);
+        this.nativeViewProtected.setFocusable(value);
     }
 
     [visibilityProperty.getDefault](): Visibility {
@@ -572,6 +717,94 @@ export class View extends ViewCommon {
     }
     [opacityProperty.setNative](value: number) {
         this.nativeViewProtected.setAlpha(float(value));
+    }
+
+    [androidElevationProperty.getDefault](): number {
+        return this.getDefaultElevation();
+    }
+    [androidElevationProperty.setNative](value: number) {
+        if (sdkVersion() < 21) {
+            return;
+        }
+
+        this.refreshStateListAnimator();
+    }
+
+    [androidDynamicElevationOffsetProperty.getDefault](): number {
+        return this.getDefaultDynamicElevationOffset();
+    }
+    [androidDynamicElevationOffsetProperty.setNative](value: number) {
+        if (sdkVersion() < 21) {
+            return;
+        }
+
+        this.refreshStateListAnimator();
+    }
+
+    protected getDefaultElevation(): number {
+        if (sdkVersion() < 21) {
+            return 0;
+        }
+
+        // NOTE: overriden in Button implementation as for widgets with StateListAnimator (Button)
+        // nativeView.getElevation() returns 0 at the time of the getDefault() query
+        return layout.toDeviceIndependentPixels((<any>this.nativeViewProtected).getElevation());
+    }
+
+    protected getDefaultDynamicElevationOffset() {
+        // NOTE: overriden in Button implementation
+        return 0;
+    }
+
+    private refreshStateListAnimator() {
+        const nativeView: any = this.nativeViewProtected;
+
+        const ObjectAnimator = android.animation.ObjectAnimator;
+        const AnimatorSet = android.animation.AnimatorSet;
+
+        const duration = nativeView.getContext().getResources().getInteger(shortAnimTime) / 2;
+        
+        let elevation = this.androidElevation;
+        if (typeof elevation === "undefined" || elevation === null) {
+            elevation = this.getDefaultElevation();
+        }
+        elevation = layout.toDevicePixels(elevation);
+
+        const z = layout.toDevicePixels(0);
+
+        let pressedZ = this.androidDynamicElevationOffset;
+        if (typeof pressedZ === "undefined" || pressedZ === null) {
+            pressedZ = this.getDefaultDynamicElevationOffset();
+        }
+        pressedZ = layout.toDevicePixels(pressedZ);
+
+        const pressedSet = new AnimatorSet();
+        pressedSet.playTogether(java.util.Arrays.asList([
+            ObjectAnimator.ofFloat(nativeView, "translationZ", [pressedZ])
+                .setDuration(duration),
+            ObjectAnimator.ofFloat(nativeView, "elevation", [elevation])
+                .setDuration(0),
+        ]));
+
+        const notPressedSet = new AnimatorSet();
+        notPressedSet.playTogether(java.util.Arrays.asList([
+            ObjectAnimator.ofFloat(nativeView, "translationZ", [z])
+                .setDuration(duration),
+            ObjectAnimator.ofFloat(nativeView, "elevation", [elevation])
+                .setDuration(0),
+        ]));
+
+        const defaultSet = new AnimatorSet();
+        defaultSet.playTogether(java.util.Arrays.asList([
+            ObjectAnimator.ofFloat(nativeView, "translationZ", [0]).setDuration(0),
+            ObjectAnimator.ofFloat(nativeView, "elevation", [0]).setDuration(0),
+        ]));
+
+        const stateListAnimator = new (<any>android.animation).StateListAnimator();
+        stateListAnimator.addState([statePressed, stateEnabled], pressedSet);
+        stateListAnimator.addState([stateEnabled], notPressedSet);
+        stateListAnimator.addState([], defaultSet);
+        nativeView.setStateListAnimator(stateListAnimator);
     }
 
     [horizontalAlignmentProperty.getDefault](): HorizontalAlignment {
@@ -720,7 +953,7 @@ export class View extends ViewCommon {
             androidBackground.onBackgroundOrBorderPropertyChanged(this);
         } else {
             const nativeView = this.nativeViewProtected;
-            org.nativescript.widgets.ViewHelper.setBackground(nativeView, value);
+            nativeView.setBackground(value);
 
             const style = this.style;
             const paddingTop = paddingTopProperty.isSet(style) ? this.effectivePaddingTop : this._defaultPaddingTop;
@@ -739,7 +972,11 @@ export class View extends ViewCommon {
     }
 }
 
-export class CustomLayoutView extends View implements CustomLayoutViewDefinition {
+export class ContainerView extends View {
+    public iosOverflowSafeArea: boolean;
+}
+
+export class CustomLayoutView extends ContainerView implements CustomLayoutViewDefinition {
     nativeViewProtected: android.view.ViewGroup;
 
     public createNativeView() {
@@ -807,7 +1044,7 @@ function createNativePercentLengthProperty(options: NativePercentLengthPropertyO
     const { getter, setter, auto = 0 } = options;
     let setPixels, getPixels, setPercent;
     if (getter) {
-        View.prototype[getter] = function (this: View): PercentLength {
+        View.prototype[getter] = function(this: View): PercentLength {
             if (options) {
                 setPixels = options.setPixels;
                 getPixels = options.getPixels;
@@ -823,7 +1060,7 @@ function createNativePercentLengthProperty(options: NativePercentLengthPropertyO
         }
     }
     if (setter) {
-        View.prototype[setter] = function (this: View, length: PercentLength) {
+        View.prototype[setter] = function(this: View, length: PercentLength) {
             if (options) {
                 setPixels = options.setPixels;
                 getPixels = options.getPixels;

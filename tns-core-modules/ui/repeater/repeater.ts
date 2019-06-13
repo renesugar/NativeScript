@@ -85,13 +85,7 @@ export class Repeater extends CustomLayoutView implements RepeaterDefinition {
     }
 
     get _childrenCount(): number {
-        var count = 0;
-
-        if (this.itemsLayout) {
-            count++;
-        }
-
-        return count;
+        return this.itemsLayout ? 1 : 0;
     }
 
     public eachChildView(callback: (child: View) => boolean) {
@@ -101,7 +95,18 @@ export class Repeater extends CustomLayoutView implements RepeaterDefinition {
     }
 
     public onLayout(left: number, top: number, right: number, bottom: number): void {
-        View.layoutChild(this, this.itemsLayout, 0, 0, right - left, bottom - top);
+        const insets = this.getSafeAreaInsets();
+
+        const paddingLeft = this.effectiveBorderLeftWidth + this.effectivePaddingLeft + insets.left;
+        const paddingTop = this.effectiveBorderTopWidth + this.effectivePaddingTop + insets.top;
+        const paddingRight = this.effectiveBorderRightWidth + this.effectivePaddingRight + insets.right;
+        const paddingBottom = this.effectiveBorderBottomWidth + this.effectivePaddingBottom + insets.bottom;
+
+        const childLeft = paddingLeft;
+        const childTop = paddingTop;
+        const childRight = right - left - paddingRight;
+        const childBottom = bottom - top - paddingBottom;
+        View.layoutChild(this, this.itemsLayout, childLeft, childTop, childRight, childBottom);
     }
 
     public onMeasure(widthMeasureSpec: number, heightMeasureSpec: number): void {

@@ -13,7 +13,7 @@ export class WrappedValue implements WrappedValueDefinition {
     }
 
     public static unwrap(value: any) {
-        return (value && value.wrapped) ? value.wrapped : value;
+        return (value instanceof WrappedValue) ? value.wrapped : value;
     }
 
     public static wrap(value: any) {
@@ -229,7 +229,7 @@ function addPropertiesFromObject(observable: ObservableFromObject, source: any, 
         if (recursive
             && !Array.isArray(value)
             && value
-            && typeof value === 'object'
+            && typeof value === "object"
             && !(value instanceof Observable)) {
             value = fromObjectRecursive(value);
         }

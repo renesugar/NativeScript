@@ -2,32 +2,46 @@
  * @module "ui/core/view"
  */ /** */
 
-///<reference path="../../../tns-core-modules.d.ts" /> Include global typings
-import { ViewBase, Property, EventData, Color } from "../view-base";
+/// <reference path="../../../tns-core-modules.d.ts" />
+
+import { ViewBase, Property, InheritedProperty, EventData, Color } from "../view-base";
 import { Animation, AnimationDefinition, AnimationPromise } from "../../animation";
 import { HorizontalAlignment, VerticalAlignment, Visibility, Length, PercentLength } from "../../styling/style-properties";
 import { GestureTypes, GestureEventData, GesturesObserver } from "../../gestures";
+import { LinearGradient } from "../../styling/gradient";
 
 export * from "../view-base";
 export * from "../../styling/style-properties";
+export { LinearGradient };
 
 export function PseudoClassHandler(...pseudoClasses: string[]): MethodDecorator;
 
 /**
  * Specifies the type name for the instances of this View class,
  * that is used when matching CSS type selectors.
- * 
+ *
  * Usage:
  * ```
  * @CSSType("Button")
  * class Button extends View {
  * }
  * ```
- * 
+ *
  * Internally the decorator set `Button.prototype.cssType = "Button"`.
  * @param type The type name, e. g. "Button", "Label", etc.
  */
 export function CSSType(type: string): ClassDecorator;
+
+/**
+ * 
+ * @param view The view
+ * @param context The ModuleType
+ * @param type Type of the ModuleType to be matched
+ */
+export function viewMatchesModuleContext(
+    view: View,
+    context: ModuleContext,
+    type: ModuleType[]): boolean;
 
 /**
  * Denotes a length number that is in device independent pixel units.
@@ -48,8 +62,8 @@ export type px = number;
 export type percent = number;
 
 /**
- * The Point interface describes a two dimensional location. 
- * It has two properties x and y, representing the x and y coordinate of the location. 
+ * The Point interface describes a two dimensional location.
+ * It has two properties x and y, representing the x and y coordinate of the location.
  */
 export interface Point {
     /**
@@ -64,8 +78,8 @@ export interface Point {
 }
 
 /**
- * The Size interface describes abstract dimensions in two dimensional space. 
- * It has two properties width and height, representing the width and height values of the size. 
+ * The Size interface describes abstract dimensions in two dimensional space.
+ * It has two properties width and height, representing the width and height values of the size.
  */
 export interface Size {
     /**
@@ -97,10 +111,14 @@ export interface ShownModallyData extends EventData {
 }
 
 /**
- * This class is the base class for all UI components. 
- * A View occupies a rectangular area on the screen and is responsible for drawing and layouting of all UI components within. 
+ * This class is the base class for all UI components.
+ * A View occupies a rectangular area on the screen and is responsible for drawing and layouting of all UI components within.
  */
 export abstract class View extends ViewBase {
+    /**
+     * String value used when hooking to layoutChanged event.
+     */
+    public static layoutChangedEvent: string;
     /**
      * String value used when hooking to showingModally event.
      */
@@ -110,7 +128,7 @@ export abstract class View extends ViewBase {
      * String value used when hooking to shownModally event.
      */
     public static shownModallyEvent: string;
-    
+
     /**
      * Gets the android-specific native instance that lies behind this proxy. Will be available if running on an Android platform.
      */
@@ -207,6 +225,16 @@ export abstract class View extends ViewBase {
     color: Color;
 
     /**
+     * Gets or sets the elevation of the android view.
+     */
+    androidElevation: number;
+
+    /**
+     * Gets or sets the dynamic elevation offset of the android view.
+     */
+    androidDynamicElevationOffset: number;
+
+    /**
      * Gets or sets the background style property.
      */
     background: string;
@@ -219,7 +247,7 @@ export abstract class View extends ViewBase {
     /**
      * Gets or sets the background image of the view.
      */
-    backgroundImage: string;
+    backgroundImage: string | LinearGradient;
 
     /**
      * Gets or sets the minimum width the view may grow to.
@@ -339,6 +367,16 @@ export abstract class View extends ViewBase {
     isUserInteractionEnabled: boolean;
 
     /**
+     * Instruct container view to expand beyond the safe area. This property is iOS specific. Default value: false
+     */
+    iosOverflowSafeArea: boolean;
+
+    /**
+     * Enables or disables the iosOverflowSafeArea property for all children. This property is iOS specific. Default value: true
+     */
+    iosOverflowSafeAreaEnabled: boolean;
+
+    /**
      * Gets is layout is valid. This is a read-only property.
      */
     isLayoutValid: boolean;
@@ -409,7 +447,6 @@ export abstract class View extends ViewBase {
 
     /**
      * Called from onLayout when native view position is about to be changed.
-     * @param parent    This parameter is not used. You can pass null.
      * @param left      Left position, relative to parent
      * @param top       Top position, relative to parent
      * @param right     Right position, relative to parent
@@ -421,7 +458,7 @@ export abstract class View extends ViewBase {
      * Measure a child by taking into account its margins and a given measureSpecs.
      * @param parent            This parameter is not used. You can pass null.
      * @param child             The view to be measured.
-     * @param measuredWidth        The measured width that the parent layout specifies for this view.
+     * @param measuredWidth     The measured width that the parent layout specifies for this view.
      * @param measuredHeight    The measured height that the parent layout specifies for this view.
      */
     public static measureChild(parent: View, child: View, widthMeasureSpec: number, heightMeasureSpec: number): { measuredWidth: number; measuredHeight: number };
@@ -457,16 +494,17 @@ export abstract class View extends ViewBase {
     public getGestureObservers(type: GestureTypes): Array<GesturesObserver>;
 
     /**
-     * [Deprecated. Please use the on() instead.] Adds a gesture observer.
+     * @deprecated use on() instead
+     *
      * @param type - Type of the gesture.
      * @param callback - A function that will be executed when gesture is received.
-     * @param thisArg - An optional parameter which will be used as `this` context for callback execution. 
+     * @param thisArg - An optional parameter which will be used as `this` context for callback execution.
      */
     observe(type: GestureTypes, callback: (args: GestureEventData) => void, thisArg?: any);
 
     /**
      * A basic method signature to hook an event listener (shortcut alias to the addEventListener method).
-     * @param eventNames - String corresponding to events (e.g. "propertyChange"). Optionally could be used more events separated by `,` (e.g. "propertyChange", "change") or you can use gesture types. 
+     * @param eventNames - String corresponding to events (e.g. "propertyChange"). Optionally could be used more events separated by `,` (e.g. "propertyChange", "change") or you can use gesture types.
      * @param callback - Callback function which will be executed when event is raised.
      * @param thisArg - An optional parameter which will be used as `this` context for callback execution.
      */
@@ -507,52 +545,24 @@ export abstract class View extends ViewBase {
     on(event: "shownModally", callback: (args: ShownModallyData) => void, thisArg?: any);
 
     /**
-    * Shows the View contained in moduleName as a modal view.
-    * @param moduleName - The name of the module to load starting from the application root.
-    * @param context - Any context you want to pass to the modally shown view.
-    * This same context will be available in the arguments of the shownModally event handler.
-    * @param closeCallback - A function that will be called when the view is closed.
-    * Any arguments provided when calling ShownModallyData.closeCallback will be available here.
-    * @param fullscreen - An optional parameter specifying whether to show the modal page in full-screen mode.
-    * @param stretched - An optional parameter specifying whether to stretch the modal page when not in full-screen mode.
-    */
-    showModal(moduleName: string, context: any, closeCallback: Function, fullscreen?: boolean, animated?: boolean, stretched?: boolean): View;
-
-    /**
-     * Shows the view passed as parameter as a modal view.
-     * @param view - View instance to be shown modally.
-     * @param context - Any context you want to pass to the modally shown view. This same context will be available in the arguments of the shownModally event handler.
-     * @param closeCallback - A function that will be called when the view is closed. Any arguments provided when calling ShownModallyData.closeCallback will be available here.
-     * @param fullscreen - An optional parameter specifying whether to show the modal view in full-screen mode.
-     * @param stretched - An optional parameter specifying whether to stretch the modal page when not in full-screen mode.
-     */
-    showModal(view: View, context: any, closeCallback: Function, fullscreen?: boolean, animated?: boolean, stretched?: boolean): View;
-
-    /**
-     * Deprecated. Showing view as modal is deprecated.
-     * Use showModal method with arguments.
-     */
-    showModal(): View;
-
-    /**
-     * Closes the current modal view that this page is showing.
-     */
-    closeModal(): void;
-
-    /**
      * Returns the current modal view that this page is showing (is parent of), if any.
      */
     modal: View;
 
     /**
-     * Animates one or more properties of the view based on the supplied options. 
+     * Animates one or more properties of the view based on the supplied options.
      */
     public animate(options: AnimationDefinition): AnimationPromise;
 
     /**
-     * Creates an Animation object based on the supplied options. 
+     * Creates an Animation object based on the supplied options.
      */
     public createAnimation(options: AnimationDefinition): Animation;
+
+    /**
+     * Returns the iOS safe area insets of this view.
+     */
+    public getSafeAreaInsets(): { left, top, right, bottom };
 
     /**
      * Returns the location of this view in the window coordinate system.
@@ -575,6 +585,11 @@ export abstract class View extends ViewBase {
     public getActualSize(): Size;
 
     /**
+     * Derived classes can override this method to handle Android back button press.
+     */
+    onBackPressed(): boolean;
+
+    /**
      * @private
      * A valid css string which will be applied for all nested UI components (based on css rules).
      */
@@ -583,7 +598,7 @@ export abstract class View extends ViewBase {
     /**
      * @private
      * Adds a new values to current css.
-     * @param cssString - A valid css which will be added to current css. 
+     * @param cssString - A valid css which will be added to current css.
      */
     addCss(cssString: string): void;
 
@@ -594,11 +609,22 @@ export abstract class View extends ViewBase {
      */
     addCssFile(cssFileName: string): void;
 
+    /**
+     * @private
+     * Changes the current css to the content of the file.
+     * @param cssFileName - A valid file name (from the application root) which contains a valid css.
+     */
+    changeCssFile(cssFileName: string): void;
+
     // Lifecycle events
     _getNativeViewsCount(): number;
 
     _eachLayoutView(callback: (View) => void): void;
 
+    /**
+     * Iterates over children of type View.
+     * @param callback Called for each child of type View. Iteration stops if this method returns falsy value.
+     */
     public eachChildView(callback: (view: View) => boolean): void;
 
     //@private
@@ -627,7 +653,7 @@ export abstract class View extends ViewBase {
      * Called by layout method to cache view bounds.
      * @private
      */
-    _setCurrentLayoutBounds(left: number, top: number, right: number, bottom: number): void;
+    _setCurrentLayoutBounds(left: number, top: number, right: number, bottom: number): { boundsChanged: boolean, sizeChanged: boolean };
     /**
      * Return view bounds.
      * @private
@@ -677,21 +703,18 @@ export abstract class View extends ViewBase {
     /**
      * @private
      */
-    _onLivesync(): boolean;
+    _onLivesync(context?: { type: string, path: string }): boolean;
     /**
      * @private
      */
-    _onBackPressed(): boolean;
-    /**
-     * @private
-     */
-    _getFragmentManager(): any; /* android.app.FragmentManager */
+    _getFragmentManager(): any; /* androidx.fragment.app.FragmentManager */
+    _handleLivesync(context?: { type: string, path: string }): boolean;
 
     /**
      * Updates styleScope or create new styleScope.
-     * @param cssFileName 
-     * @param cssString 
-     * @param css 
+     * @param cssFileName
+     * @param cssString
+     * @param css
      */
     _updateStyleScope(cssFileName?: string, cssString?: string, css?: string): void;
 
@@ -704,6 +727,11 @@ export abstract class View extends ViewBase {
      * Called in android when native view is dettached from window.
      */
     _onDetachedFromWindow(): void;
+
+    /**
+     * Checks whether the current view has specific view for an ancestor.
+     */
+    _hasAncestorView(ancestorView: View): boolean;
     //@endprivate
 
     /**
@@ -718,9 +746,19 @@ export abstract class View extends ViewBase {
 }
 
 /**
- * Base class for all UI components that implement custom layouts. 
+ * Base class for all UI components that are containers.
  */
-export class CustomLayoutView extends View {
+export class ContainerView extends View {
+    /**
+     * Instruct container view to expand beyond the safe area. This property is iOS specific. Default value: true
+     */
+    public iosOverflowSafeArea: boolean;
+}
+
+/**
+ * Base class for all UI components that implement custom layouts.
+ */
+export class CustomLayoutView extends ContainerView {
     //@private
     /**
      * @private
@@ -794,12 +832,22 @@ export const originXProperty: Property<View, number>;
 export const originYProperty: Property<View, number>;
 export const isEnabledProperty: Property<View, boolean>;
 export const isUserInteractionEnabledProperty: Property<View, boolean>;
+export const iosOverflowSafeAreaProperty: Property<View, boolean>;
+export const iosOverflowSafeAreaEnabledProperty: InheritedProperty<View, boolean>;
 
 export namespace ios {
-    export function isContentScrollable(controller: any /* UIViewController */, owner: View): boolean 
+    /**
+     * Returns a view with viewController or undefined if no such found along the view's parent chain.
+     * @param view The view form which to start the search.
+     */
+    export function getParentWithViewController(view: View): View
     export function updateAutoAdjustScrollInsets(controller: any /* UIViewController */, owner: View): void
     export function updateConstraints(controller: any /* UIViewController */, owner: View): void;
     export function layoutView(controller: any /* UIViewController */, owner: View): void;
+    export function getPositionFromFrame(frame: any /* CGRect */): { left, top, right, bottom };
+    export function getFrameFromPosition(position: { left, top, right, bottom }, insets?: { left, top, right, bottom }): any /* CGRect */;
+    export function shrinkToSafeArea(view: View, frame: any /* CGRect */): any /* CGRect */;
+    export function expandBeyondSafeArea(view: View, frame: any /* CGRect */): any /* CGRect */;
     export class UILayoutViewController {
         public static initWithOwner(owner: WeakRef<View>): UILayoutViewController;
     }

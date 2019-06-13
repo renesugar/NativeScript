@@ -1,27 +1,24 @@
 ﻿// Definitions.
-import { Frame } from "../frame";
+import { Frame, BackstackEntry } from "../frame";
+import { NavigationType } from "../frame/frame-common";
 
 // Types.
 import { ios as iosView } from "../core/view";
 import {
-    PageBase, View, ViewBase, layout,
-    actionBarHiddenProperty, statusBarStyleProperty,
-    traceEnabled, traceWrite, traceCategories, PercentLength, Color
+    PageBase, View, layout, actionBarHiddenProperty, statusBarStyleProperty, Color
 } from "./page-common";
-import { ios as iosApp } from "../../application";
-import { device } from "../../platform";
-// HACK: Webpack. Use a fully-qualified import to allow resolve.extensions(.ios.js) to
-// kick in. `../utils` doesn't seem to trigger the webpack extensions mechanism.
-import * as uiUtils from "../../ui/utils";
+
 import { profile } from "../../profiling";
+import { ios as iosUtils } from "../../utils/utils";
 
 export * from "./page-common";
 
-import { ios } from "../../utils/utils";
-import getter = ios.getter;
-
 const ENTRY = "_entry";
 const DELEGATE = "_delegate";
+const TRANSITION = "_transition";
+const NON_ANIMATED_TRANSITION = "non-animated";
+
+const majorVersion = iosUtils.MajorVersion;
 
 function isBackNavigationTo(page: Page, entry): boolean {
     const frame = page.frame;
@@ -29,14 +26,21 @@ function isBackNavigationTo(page: Page, entry): boolean {
         return false;
     }
 
+    // if executing context is null here this most probably means back navigation through iOS back button
+    const navigationContext = frame._executingContext || { navigationType: NavigationType.back };
+    const isReplace = navigationContext.navigationType === NavigationType.replace;
+    if (isReplace) {
+        return false;
+    }
+
     if (frame.navigationQueueIsEmpty()) {
         return true;
-    } else {
-        const navigationQueue = (<any>frame)._navigationQueue;
-        for (let i = 0; i < navigationQueue.length; i++) {
-            if (navigationQueue[i].entry === entry) {
-                return navigationQueue[i].isBackNavigation;
-            }
+    }
+
+    const navigationQueue = (<any>frame)._navigationQueue;
+    for (let i = 0; i < navigationQueue.length; i++) {
+        if (navigationQueue[i].entry === entry) {
+            return navigationQueue[i].navigationType === NavigationType.back;
         }
     }
 
@@ -73,6 +77,14 @@ class UIViewControllerImpl extends UIViewController {
         return controller;
     }
 
+    public viewDidLoad(): void {
+        super.viewDidLoad();
+
+        // Unify translucent and opaque bars layout
+        // this.edgesForExtendedLayout = UIRectEdgeBottom;
+        this.extendedLayoutIncludesOpaqueBars = true;
+    }
+
     public viewWillAppear(animated: boolean): void {
         super.viewWillAppear(animated);
         const owner = this._owner.get();
@@ -82,7 +94,6 @@ class UIViewControllerImpl extends UIViewController {
 
         const frame = this.navigationController ? (<any>this.navigationController).owner : null;
         const newEntry = this[ENTRY];
-        const modalParent = owner._modalParent;
 
         // Don't raise event if currentPage was showing modal page.
         if (!owner._presentedViewController && newEntry && (!frame || frame.currentPage !== owner)) {
@@ -125,20 +136,29 @@ class UIViewControllerImpl extends UIViewController {
         }
 
         const navigationController = this.navigationController;
-        const frame = navigationController ? (<any>navigationController).owner : null;
+        const frame: Frame = navigationController ? (<any>navigationController).owner : null;
         // Skip navigation events if modal page is shown.
         if (!owner._presentedViewController && frame) {
-            const newEntry = this[ENTRY];
-            
-            let isBack: boolean;
-            // We are on the current page which happens when navigation is canceled so isBack should be false.
-            if (frame.currentPage === owner && frame._navigationQueue.length === 0) {
-                isBack = false;
-            } else {
-                isBack = isBackNavigationTo(owner, newEntry);
-            }
+            const newEntry: BackstackEntry = this[ENTRY];
 
-            frame.setCurrent(newEntry, isBack);
+            // frame.setCurrent(...) will reset executing context so retrieve it here
+            // if executing context is null here this most probably means back navigation through iOS back button
+            const navigationContext = frame._executingContext || { navigationType: NavigationType.back };
+            const isReplace = navigationContext.navigationType === NavigationType.replace;
+
+            frame.setCurrent(newEntry, navigationContext.navigationType);
+            
+            if (isReplace) {
+                let controller = newEntry.resolvedPage.ios;
+                if (controller) {
+                    const animated = frame._getIsAnimatedNavigation(newEntry.entry);
+                    if (animated) {
+                        controller[TRANSITION] = frame._getNavigationTransition(newEntry.entry);
+                    } else {
+                        controller[TRANSITION] = { name: NON_ANIMATED_TRANSITION };
+                    }
+                }
+            }
 
             // If page was shown with custom animation - we need to set the navigationController.delegate to the animatedDelegate.
             frame.ios.controller.delegate = this[DELEGATE];
@@ -180,14 +200,14 @@ class UIViewControllerImpl extends UIViewController {
 
         const frame = owner.frame;
         // Skip navigation events if we are hiding because we are about to show a modal page,
-        // or because we are closing a modal page, 
+        // or because we are closing a modal page,
         // or because we are in tab and another controller is selected.
         const tab = this.tabBarController;
-        if (!owner._presentedViewController && !this.presentingViewController && frame && frame.currentPage === owner) {
+        if (owner.onNavigatingFrom && !owner._presentedViewController && !this.presentingViewController && frame && frame.currentPage === owner) {
             const willSelectViewController = tab && (<any>tab)._willSelectViewController;
             if (!willSelectViewController
                 || willSelectViewController === tab.selectedViewController) {
-                let isBack = isBackNavigationFrom(this, owner);
+                const isBack = isBackNavigationFrom(this, owner);
                 owner.onNavigatingFrom(isBack);
             }
         }
@@ -223,6 +243,39 @@ class UIViewControllerImpl extends UIViewController {
         if (owner) {
             // layout(owner.actionBar)
             // layout(owner.content)
+
+            if (majorVersion >= 11) {
+                // Handle nested Page safe area insets application.
+                // A Page is nested if its Frame has a parent.
+                // If the Page is nested, cross check safe area insets on top and bottom with Frame parent.
+                const frame = owner.parent;
+                // There is a legacy scenario where Page is not in a Frame - the root of a Modal View, so it has no parent.
+                let frameParent = frame && frame.parent;
+
+                // Handle Angular scenario where TabView is in a ProxyViewContainer
+                // It is possible to wrap components in ProxyViewContainers indefinitely
+                // Not using instanceof ProxyViewContainer to avoid circular dependency
+                // TODO: Try moving UIViewControllerImpl out of page module
+                while (frameParent && !frameParent.nativeViewProtected) {
+                    frameParent = frameParent.parent;
+                }
+
+                if (frameParent) {
+                    const parentPageInsetsTop = frameParent.nativeViewProtected.safeAreaInsets.top;
+                    const currentInsetsTop = this.view.safeAreaInsets.top;
+                    const additionalInsetsTop = Math.max(parentPageInsetsTop - currentInsetsTop, 0);
+
+                    const parentPageInsetsBottom = frameParent.nativeViewProtected.safeAreaInsets.bottom;
+                    const currentInsetsBottom = this.view.safeAreaInsets.bottom;
+                    const additionalInsetsBottom = Math.max(parentPageInsetsBottom - currentInsetsBottom, 0);
+
+                    if (additionalInsetsTop > 0 || additionalInsetsBottom > 0) {
+                        const additionalInsets = new UIEdgeInsets({ top: additionalInsetsTop, left: 0, bottom: additionalInsetsBottom, right: 0 });
+                        this.additionalSafeAreaInsets = additionalInsets;
+                    }
+                }
+            }
+
             iosView.layoutView(this, owner);
         }
     }
@@ -240,8 +293,11 @@ export class Page extends PageBase {
         super();
         const controller = UIViewControllerImpl.initWithOwner(new WeakRef(this));
         this.viewController = this._ios = controller;
-        this.nativeViewProtected = controller.view;
-        this.nativeViewProtected.backgroundColor = whiteColor;
+        controller.view.backgroundColor = whiteColor;
+    }
+
+    createNativeView() {
+        return this.viewController.view;
     }
 
     get ios(): UIViewController {
@@ -318,7 +374,21 @@ export class Page extends PageBase {
     public onLayout(left: number, top: number, right: number, bottom: number) {
         const { width: actionBarWidth, height: actionBarHeight } = this.actionBar._getActualSize;
         View.layoutChild(this, this.actionBar, 0, 0, actionBarWidth, actionBarHeight);
-        View.layoutChild(this, this.layoutView, left, top, right, bottom);
+
+        const insets = this.getSafeAreaInsets();
+
+        if (majorVersion <= 10) {
+            // iOS 10 and below don't have safe area insets API,
+            // there we need only the top inset on the Page
+            insets.top = layout.round(layout.toDevicePixels(this.viewController.view.safeAreaLayoutGuide.layoutFrame.origin.y));
+        }
+
+        const childLeft = 0 + insets.left;
+        const childTop = 0 + insets.top;
+        const childRight = right - insets.right;
+        let childBottom = bottom - insets.bottom;
+
+        View.layoutChild(this, this.layoutView, childLeft, childTop, childRight, childBottom);
     }
 
     public _addViewToNativeVisualTree(child: View, atIndex: number): boolean {
@@ -336,7 +406,7 @@ export class Page extends PageBase {
             if (this.viewController.presentedViewController === viewController) {
                 return true;
             }
-            
+
             this.viewController.addChildViewController(viewController);
         }
 

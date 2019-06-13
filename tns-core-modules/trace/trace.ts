@@ -1,9 +1,10 @@
-﻿import * as definition from ".";
+﻿import { EventListener, TraceWriter, ErrorHandler } from ".";
 
 let enabled = false;
 let _categories = {};
-let _writers: Array<definition.TraceWriter> = [];
-let _eventListeners: Array<definition.EventListener> = [];
+let _writers: Array<TraceWriter> = [];
+let _eventListeners: Array<EventListener> = [];
+let _errorHandler: ErrorHandler;
 
 export function enable() {
     enabled = true;
@@ -21,11 +22,11 @@ export function isCategorySet(category: string): boolean {
     return category in _categories;
 }
 
-export function addWriter(writer: definition.TraceWriter) {
+export function addWriter(writer: TraceWriter) {
     _writers.push(writer);
 }
 
-export function removeWriter(writer: definition.TraceWriter) {
+export function removeWriter(writer: TraceWriter) {
     let index = _writers.indexOf(writer);
     if (index >= 0) {
         _writers.splice(index, 1);
@@ -79,7 +80,7 @@ export function notifyEvent(object: Object, name: string, data?: any) {
     }
 
     let i,
-        listener: definition.EventListener,
+        listener: EventListener,
         filters: Array<string>;
     for (i = 0; i < _eventListeners.length; i++) {
         listener = _eventListeners[i];
@@ -96,46 +97,58 @@ export function notifyEvent(object: Object, name: string, data?: any) {
     }
 }
 
-export function addEventListener(listener: definition.EventListener) {
+export function addEventListener(listener: EventListener) {
     _eventListeners.push(listener);
 }
 
-export function removeEventListener(listener: definition.EventListener) {
-    var index = _eventListeners.indexOf(listener);
+export function removeEventListener(listener: EventListener) {
+    const index = _eventListeners.indexOf(listener);
     if (index >= 0) {
         _eventListeners.splice(index, 1);
     }
 }
 
 export module messageType {
-    export var log = 0;
-    export var info = 1;
-    export var warn = 2;
-    export var error = 3;
+    export const log = 0;
+    export const info = 1;
+    export const warn = 2;
+    export const error = 3;
 }
 
 export module categories {
-    export var VisualTreeEvents = "VisualTreeEvents";
-    export var Layout = "Layout";
-    export var Style = "Style";
-    export var ViewHierarchy = "ViewHierarchy";
-    export var NativeLifecycle = "NativeLifecycle";
-    export var Debug = "Debug";
-    export var Navigation = "Navigation";
-    export var Test = "Test";
-    export var Binding = "Binding";
-    export var BindingError = "BindingError";
-    export var Error = "Error";
-    export var Animation = "Animation";
-    export var Transition = "Transition";
-    export var All = VisualTreeEvents + "," + Layout + "," + Style + "," + ViewHierarchy + "," + NativeLifecycle + "," + Debug + "," + Navigation + "," + Test + "," + Binding + "," + Error + "," + Animation + "," + Transition;
+    export const VisualTreeEvents = "VisualTreeEvents";
+    export const Layout = "Layout";
+    export const Style = "Style";
+    export const ViewHierarchy = "ViewHierarchy";
+    export const NativeLifecycle = "NativeLifecycle";
+    export const Debug = "Debug";
+    export const Navigation = "Navigation";
+    export const Test = "Test";
+    export const Binding = "Binding";
+    export const BindingError = "BindingError";
+    export const Error = "Error";
+    export const Animation = "Animation";
+    export const Transition = "Transition";
+    export const Livesync = "Livesync";
 
-    export var separator = ",";
+    export const separator = ",";
+    export const All = VisualTreeEvents + separator
+        + Layout + separator
+        + Style + separator
+        + ViewHierarchy + separator
+        + NativeLifecycle + separator
+        + Debug + separator
+        + Navigation + separator
+        + Test + separator
+        + Binding + separator
+        + Error + separator
+        + Animation + separator
+        + Transition + separator
+        + Livesync;
 
     export function concat(): string {
-        var i;
-        var result: string;
-        for (i = 0; i < arguments.length; i++) {
+        let result: string;
+        for (let i = 0; i < arguments.length; i++) {
             if (!result) {
                 result = arguments[i];
                 continue;
@@ -148,13 +161,13 @@ export module categories {
     }
 }
 
-class ConsoleWriter implements definition.TraceWriter {
+class ConsoleWriter implements TraceWriter {
     public write(message: any, category: string, type?: number) {
         if (!console) {
             return;
         }
 
-        var msgType;
+        let msgType;
         if (type === undefined) {
             msgType = messageType.log;
         } else {
@@ -177,6 +190,31 @@ class ConsoleWriter implements definition.TraceWriter {
         }
     }
 }
-
 // register a ConsoleWriter by default
 addWriter(new ConsoleWriter());
+
+export class DefaultErrorHandler implements ErrorHandler {
+    handlerError(error) {
+        throw error;
+    }
+}
+setErrorHandler(new DefaultErrorHandler());
+
+export function getErrorHandler(): ErrorHandler {
+    return _errorHandler;
+}
+
+export function setErrorHandler(handler: ErrorHandler) {
+    _errorHandler = handler;
+}
+export function error(error: string | Error) {
+    if (!_errorHandler) {
+        return;
+    }
+
+    if (typeof error === "string") {
+        error = new Error(error);
+    }
+
+    _errorHandler.handlerError(error);
+}

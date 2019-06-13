@@ -106,7 +106,7 @@ export class ImageSource implements ImageSourceDefinition {
     public fromBase64(source: string): Promise<boolean> {
         return new Promise<boolean>((resolve, reject) => {
             try {
-                var data = NSData.alloc().initWithBase64EncodedStringOptions(source, NSDataBase64DecodingOptions.IgnoreUnknownCharacters);
+                const data = NSData.alloc().initWithBase64EncodedStringOptions(source, NSDataBase64DecodingOptions.IgnoreUnknownCharacters);
                 UIImage.imageWithData["async"](UIImage, [data]).then(image => {
                     this.ios = image;
                     resolve(true);
@@ -131,7 +131,7 @@ export class ImageSource implements ImageSourceDefinition {
         }
 
         if (quality) {
-            quality = quality - 0 / (100 - 0);  // Normalize quality on a scale of 0 to 1
+            quality = (quality - 0) / (100 - 0);  // Normalize quality on a scale of 0 to 1
         }
 
         const data = getImageData(this.ios, format, quality);
@@ -149,7 +149,7 @@ export class ImageSource implements ImageSourceDefinition {
         }
 
         if (quality) {
-            quality = quality - 0 / (100 - 0);  // Normalize quality on a scale of 0 to 1
+            quality = (quality - 0) / (100 - 0);  // Normalize quality on a scale of 0 to 1
         }
 
         const data = getImageData(this.ios, format, quality);
@@ -190,8 +190,8 @@ function getFileName(path: string): string {
     return fileName;
 }
 
-function getImageData(instance: UIImage, format: "png" | "jpeg" | "jpg", quality = 1.0): NSData {
-    var data = null;
+function getImageData(instance: UIImage, format: "png" | "jpeg" | "jpg", quality = 0.9): NSData {
+    let data = null;
     switch (format) {
         case "png":
             data = UIImagePNGRepresentation(instance);
@@ -201,6 +201,7 @@ function getImageData(instance: UIImage, format: "png" | "jpeg" | "jpg", quality
             data = UIImageJPEGRepresentation(instance, quality);
             break;
     }
+
     return data;
 }
 

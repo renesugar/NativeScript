@@ -5,8 +5,12 @@
 } from "./button-common";
 import { profile } from "../../profiling";
 import { TouchGestureEventData, GestureTypes, TouchAction } from "../gestures";
+import { device } from "../../platform";
+import lazy from "../../utils/lazy";
 
 export * from "./button-common";
+
+const sdkVersion = lazy(() => parseInt(device.sdkVersion));
 
 interface ClickListener {
     new(owner: Button): android.view.View.OnClickListener;
@@ -37,34 +41,42 @@ function initializeClickListener(): void {
     }
 
     ClickListener = ClickListenerImpl;
-    APILEVEL = android.os.Build.VERSION.SDK_INT;
-    AndroidButton = android.widget.Button;
 }
 
 export class Button extends ButtonBase {
     nativeViewProtected: android.widget.Button;
+
+    constructor() {
+        super();
+        if (!APILEVEL) {
+            APILEVEL = android.os.Build.VERSION.SDK_INT;
+        }
+    }
 
     private _stateListAnimator: any;
     private _highlightedHandler: (args: TouchGestureEventData) => void;
 
     @profile
     public createNativeView() {
-        initializeClickListener();
-        const button = new AndroidButton(this._context);
-        const clickListener = new ClickListener(this);
-        button.setOnClickListener(clickListener);
-        (<any>button).clickListener = clickListener;
-        return button;
+        if (!AndroidButton) {
+            AndroidButton = android.widget.Button;
+        }
+        return new AndroidButton(this._context);
     }
 
     public initNativeView(): void {
-        const nativeView = this.nativeViewProtected;
-        (<any>nativeView).clickListener.owner = this;
         super.initNativeView();
+        const nativeView = this.nativeViewProtected;
+        initializeClickListener();
+        const clickListener = new ClickListener(this);
+        nativeView.setOnClickListener(clickListener);
+        (<any>nativeView).clickListener = clickListener;
     }
 
     public disposeNativeView() {
-        (<any>this.nativeViewProtected).clickListener.owner = null;
+        if (this.nativeViewProtected) {
+            (<any>this.nativeViewProtected).clickListener.owner = null;
+        }
         super.disposeNativeView();
     }
 
@@ -83,6 +95,7 @@ export class Button extends ButtonBase {
             this._highlightedHandler = this._highlightedHandler || ((args: TouchGestureEventData) => {
                 switch (args.action) {
                     case TouchAction.up:
+                    case TouchAction.cancel:
                         this._goToVisualState("normal");
                         break;
                     case TouchAction.down:
@@ -141,5 +154,24 @@ export class Button extends ButtonBase {
         // Button initial value is center.
         const newValue = value === "initial" ? "center" : value;
         super[textAlignmentProperty.setNative](newValue);
+    }
+
+    protected getDefaultElevation(): number {
+        if (sdkVersion() < 21) {
+            return 0;
+        }
+
+        // NOTE: Button widget has StateListAnimator that defines the elevation value and
+        // at the time of the getDefault() query the animator is not applied yet so we
+        // return the hardcoded @dimen/button_elevation_material value 2dp here instead
+        return 2;
+    }
+
+    protected getDefaultDynamicElevationOffset(): number {
+        if (sdkVersion() < 21) {
+            return 0;
+        }
+
+        return 4; // 4dp @dimen/button_pressed_z_material
     }
 }

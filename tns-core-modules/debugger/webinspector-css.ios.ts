@@ -1,10 +1,7 @@
 import * as inspectorCommandTypes from "./InspectorBackendCommands.ios";
-var inspectorCommands: typeof inspectorCommandTypes = require("./InspectorBackendCommands");
+const inspectorCommands: typeof inspectorCommandTypes = require("./InspectorBackendCommands");
 
 import * as debuggerDomains from "./debugger";
-import * as devToolsElements from "./devtools-elements";
-
-declare var __inspectorSendEvent;
 
 import { attachCSSInspectorCommandCallbacks } from "./devtools-elements";
 
@@ -21,6 +18,10 @@ export class CSSDomainDebugger implements inspectorCommandTypes.CSSDomain.CSSDom
         this.commands = {};
 
         attachCSSInspectorCommandCallbacks(this.commands);
+
+        // By default start enabled because we can miss the "enable" event when
+        // running with `--debug-brk` -- the frontend will send it before we've been created
+        this.enable();
     }
 
     get enabled(): boolean {

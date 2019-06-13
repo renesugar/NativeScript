@@ -1,14 +1,13 @@
 import { ImageSource } from "../image-source";
 import * as httpRequest from "./http-request";
-
-global.moduleMerge(httpRequest, exports);
+export * from "./http-request";
 
 export function getString(arg: any): Promise<string> {
     return new Promise<string>((resolve, reject) => {
         httpRequest.request(typeof arg === "string" ? { url: arg, method: "GET" } : arg)
             .then(r => {
                 try {
-                    var str = r.content.toString();
+                    const str = r.content.toString();
                     resolve(str);
                 } catch (e) {
                     reject(e);
@@ -22,7 +21,7 @@ export function getJSON<T>(arg: any): Promise<T> {
         httpRequest.request(typeof arg === "string" ? { url: arg, method: "GET" } : arg)
             .then(r => {
                 try {
-                    var json = r.content.toJSON();
+                    const json = r.content.toJSON();
                     resolve(json);
                 } catch (e) {
                     reject(e);
@@ -32,9 +31,18 @@ export function getJSON<T>(arg: any): Promise<T> {
 }
 
 export function getImage(arg: any): Promise<ImageSource> {
-    return httpRequest
-        .request(typeof arg === "string" ? { url: arg, method: "GET" } : arg)
-        .then(responce => responce.content.toImage());
+  return new Promise<any>((resolve, reject) => {
+    httpRequest.request(typeof arg === "string" ? { url: arg, method: "GET" } : arg)
+        .then(r => {
+          try {
+            resolve(r.content.toImage());
+          } catch (err) {
+            reject(err);
+          }
+        }, err => {
+          reject(err);
+        });
+  });
 }
 
 export function getFile(arg: any, destinationFilePath?: string): Promise<any> {
@@ -42,7 +50,7 @@ export function getFile(arg: any, destinationFilePath?: string): Promise<any> {
         httpRequest.request(typeof arg === "string" ? { url: arg, method: "GET" } : arg)
             .then(r => {
                 try {
-                    var file = r.content.toFile(destinationFilePath);
+                    const file = r.content.toFile(destinationFilePath);
                     resolve(file);
                 } catch (e) {
                     reject(e);

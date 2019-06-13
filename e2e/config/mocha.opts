@@ -1,0 +1,5 @@
+--timeout 300000
+--recursive e2e
+--reporter mochawesome 
+--reporter-options quiet=true,html=true,inline=true,autoOpen=true
+--exit

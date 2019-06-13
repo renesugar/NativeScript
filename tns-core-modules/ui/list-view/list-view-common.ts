@@ -1,5 +1,5 @@
-﻿import { ListView as ListViewDefinition, ItemsSource, ItemEventData } from ".";
-import { CoercibleProperty, CssProperty, Style, View, Template, KeyedTemplate, Length, Property, Color, Observable, EventData, CSSType } from "../core/view";
+import { ListView as ListViewDefinition, ItemsSource, ItemEventData, TemplatedItemsView } from ".";
+import { CoercibleProperty, CssProperty, Style, View, ContainerView, Template, KeyedTemplate, Length, Property, Color, Observable, EventData, CSSType } from "../core/view";
 import { parse, parseMultipleTemplates } from "../builder";
 import { Label } from "../label";
 import { ObservableArray, ChangedData } from "../../data/observable-array";
@@ -19,7 +19,7 @@ export module knownMultiTemplates {
 const autoEffectiveRowHeight = -1;
 
 @CSSType("ListView")
-export abstract class ListViewBase extends View implements ListViewDefinition {
+export abstract class ListViewBase extends ContainerView implements ListViewDefinition, TemplatedItemsView {
     public static itemLoadingEvent = "itemLoading";
     public static itemTapEvent = "itemTap";
     public static loadMoreItemsEvent = "loadMoreItems";
@@ -42,6 +42,7 @@ export abstract class ListViewBase extends View implements ListViewDefinition {
     public _itemTemplatesInternal = new Array<KeyedTemplate>(this._defaultTemplate);
     public _effectiveRowHeight: number = autoEffectiveRowHeight;
     public rowHeight: Length;
+    public iosEstimatedRowHeight: Length;
     public items: any[] | ItemsSource;
     public itemTemplate: string | Template;
     public itemTemplates: string | Array<KeyedTemplate>;
@@ -65,6 +66,11 @@ export abstract class ListViewBase extends View implements ListViewDefinition {
             });
             this._itemTemplateSelector = (item: any, index: number, items: any) => {
                 item["$index"] = index;
+
+                if (this._itemTemplateSelectorBindable.bindingContext === item) {
+                    this._itemTemplateSelectorBindable.bindingContext = null;
+                }
+
                 this._itemTemplateSelectorBindable.bindingContext = item;
                 return this._itemTemplateSelectorBindable.get("templateKey");
             };
@@ -77,7 +83,6 @@ export abstract class ListViewBase extends View implements ListViewDefinition {
     get itemIdGenerator(): (item: any, index: number, items: any) => number {
         return this._itemIdGenerator;
     }
-
     set itemIdGenerator(generatorFn: (item: any, index: number, items: any) => number) {
         this._itemIdGenerator = generatorFn;
     }
@@ -87,6 +92,10 @@ export abstract class ListViewBase extends View implements ListViewDefinition {
     }
 
     public scrollToIndex(index: number) {
+        //
+    }
+
+    public scrollToIndexAnimated(index: number) {
         //
     }
 
@@ -133,6 +142,10 @@ export abstract class ListViewBase extends View implements ListViewDefinition {
 
     public _onRowHeightPropertyChanged(oldValue: Length, newValue: Length) {
         this.refresh();
+    }
+
+    public isItemAtIndexVisible(index: number) {
+        return false;
     }
 
     protected updateEffectiveRowHeight(): void {
@@ -206,6 +219,11 @@ export const rowHeightProperty = new CoercibleProperty<ListViewBase, Length>({
     }, valueConverter: Length.parse
 });
 rowHeightProperty.register(ListViewBase);
+
+export const iosEstimatedRowHeightProperty = new Property<ListViewBase, Length>({
+    name: "iosEstimatedRowHeight", valueConverter: (v) => Length.parse(v)
+});
+iosEstimatedRowHeightProperty.register(ListViewBase);
 
 export const separatorColorProperty = new CssProperty<Style, Color>({ name: "separatorColor", cssName: "separator-color", equalityComparer: Color.equals, valueConverter: (v) => new Color(v) });
 separatorColorProperty.register(Style);

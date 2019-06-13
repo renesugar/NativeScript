@@ -5,12 +5,13 @@ import { View } from "../core/view";
 import { AnimationBase, Properties, PropertyAnimation, CubicBezierAnimationCurve, AnimationPromise, Color, traceWrite, traceEnabled, traceCategories, traceType } from "./animation-common";
 import {
     opacityProperty, backgroundColorProperty, rotateProperty,
-    translateXProperty, translateYProperty, scaleXProperty, scaleYProperty
+    translateXProperty, translateYProperty, scaleXProperty, scaleYProperty,
+    heightProperty, widthProperty, PercentLength
 } from "../styling/style-properties";
 
 import { layout } from "../../utils/utils";
+import { device, screen } from "../../platform";
 import lazy from "../../utils/lazy";
-
 export * from "./animation-common";
 
 interface AnimationDefinitionInternal extends AnimationDefinition {
@@ -37,6 +38,8 @@ propertyKeys[Properties.opacity] = Symbol(keyPrefix + Properties.opacity);
 propertyKeys[Properties.rotate] = Symbol(keyPrefix + Properties.rotate);
 propertyKeys[Properties.scale] = Symbol(keyPrefix + Properties.scale);
 propertyKeys[Properties.translate] = Symbol(keyPrefix + Properties.translate);
+propertyKeys[Properties.height] = Symbol(keyPrefix + Properties.height);
+propertyKeys[Properties.width] = Symbol(keyPrefix + Properties.width);
 
 export function _resolveAnimationCurve(curve: string | CubicBezierAnimationCurve | android.view.animation.Interpolator | android.view.animation.LinearInterpolator): android.view.animation.Interpolator {
     switch (curve) {
@@ -66,13 +69,13 @@ export function _resolveAnimationCurve(curve: string | CubicBezierAnimationCurve
             }
             return bounce();
         case "ease":
-            return (<any>android).support.v4.view.animation.PathInterpolatorCompat.create(0.25, 0.1, 0.25, 1.0);
+            return (<any>androidx).core.view.animation.PathInterpolatorCompat.create(0.25, 0.1, 0.25, 1.0);
         default:
             if (traceEnabled()) {
                 traceWrite("Animation curve resolved to original: " + curve, traceCategories.Animation);
             }
             if (curve instanceof CubicBezierAnimationCurve) {
-                return (<any>android).support.v4.view.animation.PathInterpolatorCompat.create(curve.x1, curve.y1, curve.x2, curve.y2);
+                return (<any>androidx).core.view.animation.PathInterpolatorCompat.create(curve.x1, curve.y1, curve.x2, curve.y2);
             } else if (curve && (<any>curve).getInterpolation) {
                 return <android.view.animation.Interpolator>curve;
             } else if ((<any>curve) instanceof android.view.animation.LinearInterpolator) {
@@ -92,6 +95,7 @@ export class Animation extends AnimationBase {
     private _propertyResetCallbacks: Array<Function>;
     private _valueSource: "animation" | "keyframe";
     private _target: View;
+    private _resetOnFinish: boolean = true;
 
     constructor(animationDefinitions: Array<AnimationDefinitionInternal>, playSequentially?: boolean) {
         super(animationDefinitions, playSequentially);
@@ -134,12 +138,18 @@ export class Animation extends AnimationBase {
         });
     }
 
-    public play(): AnimationPromise {
+    public play(resetOnFinish?: boolean): AnimationPromise {
+        if (resetOnFinish !== undefined) {
+            this._resetOnFinish = resetOnFinish;
+        }
+
         if (this.isPlaying) {
             return this._rejectAlreadyPlaying();
         }
 
-        let animationFinishedPromise = super.play();
+        if (this._animatorSet) {
+            return this._play();
+        }
 
         this._animators = new Array<android.animation.Animator>();
         this._propertyUpdateCallbacks = new Array<Function>();
@@ -156,21 +166,8 @@ export class Animation extends AnimationBase {
 
         this._animatorSet = new android.animation.AnimatorSet();
         this._animatorSet.addListener(this._animatorListener);
-        if (this._animators.length > 0) {
-            if (this._playSequentially) {
-                this._animatorSet.playSequentially(this._nativeAnimatorsArray);
-            }
-            else {
-                this._animatorSet.playTogether(this._nativeAnimatorsArray);
-            }
-        }
 
-        if (traceEnabled()) {
-            traceWrite("Starting " + this._nativeAnimatorsArray.length + " animations " + (this._playSequentially ? "sequentially." : "together."), traceCategories.Animation);
-        }
-        this._animatorSet.setupStartValues();
-        this._animatorSet.start();
-        return animationFinishedPromise;
+        return this._play();
     }
 
     public cancel(): void {
@@ -188,6 +185,33 @@ export class Animation extends AnimationBase {
         return _resolveAnimationCurve(curve);
     }
 
+    private _play(): AnimationPromise {
+        const animationFinishedPromise = super.play();
+
+        if (device.sdkVersion <= "23") {
+            this._animatorSet = new android.animation.AnimatorSet();
+            this._animatorSet.addListener(this._animatorListener);
+        }
+
+        if (this._animators.length > 0) {
+            if (this._playSequentially) {
+                this._animatorSet.playSequentially(this._nativeAnimatorsArray);
+            }
+            else {
+                this._animatorSet.playTogether(this._nativeAnimatorsArray);
+            }
+        }
+
+        if (traceEnabled()) {
+            traceWrite("Starting " + this._nativeAnimatorsArray.length + " animations " + (this._playSequentially ? "sequentially." : "together."), traceCategories.Animation);
+        }
+
+        this._animatorSet.setupStartValues();
+        this._animatorSet.start();
+
+        return animationFinishedPromise;
+    }
+
     private _onAndroidAnimationEnd() { // tslint:disable-line
         if (!this.isPlaying) {
             // It has been cancelled
@@ -197,12 +221,12 @@ export class Animation extends AnimationBase {
         this._propertyUpdateCallbacks.forEach(v => v());
         this._resolveAnimationFinishedPromise();
 
-        if (this._target) {
+        if (this._resetOnFinish && this._target) {
             this._target._removeAnimation(this);
         }
     }
 
-    private _onAndroidAnimationCancel() { // tslint:disable-line 
+    private _onAndroidAnimationCancel() { // tslint:disable-line
         this._propertyResetCallbacks.forEach(v => v());
         this._rejectAnimationFinishedPromise();
 
@@ -428,9 +452,48 @@ export class Animation extends AnimationBase {
                 }));
                 animators.push(android.animation.ObjectAnimator.ofFloat(nativeView, "rotation", nativeArray));
                 break;
+            case Properties.width:
+            case Properties.height: {
 
+                const isVertical: boolean = propertyAnimation.property === "height";
+                const extentProperty = isVertical ? heightProperty : widthProperty;
+
+                extentProperty._initDefaultNativeValue(style);
+                nativeArray = Array.create("float", 2);
+                let toValue = propertyAnimation.value;
+                let parent = propertyAnimation.target.parent as View;
+                if (!parent) {
+                    throw new Error(`cannot animate ${propertyAnimation.property} on root view`);
+                }
+                const parentExtent: number = isVertical ? parent.getMeasuredHeight() : parent.getMeasuredWidth();
+                toValue = PercentLength.toDevicePixels(toValue, parentExtent, parentExtent) / screen.mainScreen.scale;
+                const nativeHeight: number = isVertical ? nativeView.getHeight() : nativeView.getWidth();
+                const targetStyle: string = setLocal ? extentProperty.name : extentProperty.keyframe;
+                originalValue1 = nativeHeight / screen.mainScreen.scale;
+                nativeArray[0] = originalValue1;
+                nativeArray[1] = toValue;
+                let extentAnimator = android.animation.ValueAnimator.ofFloat(nativeArray);
+                extentAnimator.addUpdateListener(new android.animation.ValueAnimator.AnimatorUpdateListener({
+                    onAnimationUpdate(animator: android.animation.ValueAnimator) {
+                        const argb = (<java.lang.Float>animator.getAnimatedValue()).floatValue();
+                        propertyAnimation.target.style[setLocal ? extentProperty.name : extentProperty.keyframe] = argb;
+                    }
+                }));
+                propertyUpdateCallbacks.push(checkAnimation(() => {
+                    propertyAnimation.target.style[targetStyle] = propertyAnimation.value;
+                }));
+                propertyResetCallbacks.push(checkAnimation(() => {
+                    propertyAnimation.target.style[targetStyle] = originalValue1;
+                    if (propertyAnimation.target.nativeViewProtected) {
+                        const setter = propertyAnimation.target[extentProperty.setNative];
+                        setter(propertyAnimation.target.style[propertyAnimation.property]);
+                    }
+                }));
+                animators.push(extentAnimator);
+                break;
+            }
             default:
-                throw new Error("Cannot animate " + propertyAnimation.property);
+                throw new Error(`Animating property '${propertyAnimation.property}' is unsupported`);
         }
 
         for (let i = 0, length = animators.length; i < length; i++) {

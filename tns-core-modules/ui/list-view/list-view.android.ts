@@ -44,7 +44,6 @@ function initializeItemClickListener(): void {
 
 export class ListView extends ListViewBase {
     nativeViewProtected: android.widget.ListView;
-
     private _androidViewId: number = -1;
 
     public _realizedItems = new Map<android.view.View, View>();
@@ -52,22 +51,11 @@ export class ListView extends ListViewBase {
 
     @profile
     public createNativeView() {
-        initializeItemClickListener();
-
         const listView = new android.widget.ListView(this._context);
         listView.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);
 
         // Fixes issue with black random black items when scrolling
         listView.setCacheColorHint(android.graphics.Color.TRANSPARENT);
-
-        ensureListViewAdapterClass();
-        const adapter = new ListViewAdapterClass(this);
-        listView.setAdapter(adapter);
-        (<any>listView).adapter = adapter;
-
-        const itemClickListener = new ItemClickListener(this);
-        listView.setOnItemClickListener(itemClickListener);
-        (<any>listView).itemClickListener = itemClickListener;
 
         return listView;
     }
@@ -76,11 +64,17 @@ export class ListView extends ListViewBase {
         super.initNativeView();
         this.updateEffectiveRowHeight();
 
-        const nativeView: any = this.nativeViewProtected;
-        (<any>nativeView).itemClickListener.owner = this;
-        const adapter = (<any>nativeView).adapter;
-        adapter.owner = this;
+        const nativeView = this.nativeViewProtected;
+        initializeItemClickListener();
+        ensureListViewAdapterClass();
+        const adapter = new ListViewAdapterClass(this);
         nativeView.setAdapter(adapter);
+        (<any>nativeView).adapter = adapter;
+
+        const itemClickListener = new ItemClickListener(this);
+        nativeView.setOnItemClickListener(itemClickListener);
+        (<any>nativeView).itemClickListener = itemClickListener;
+
         if (this._androidViewId < 0) {
             this._androidViewId = android.view.View.generateViewId();
         }
@@ -122,6 +116,13 @@ export class ListView extends ListViewBase {
         const nativeView = this.nativeViewProtected;
         if (nativeView) {
             nativeView.setSelection(index);
+        }
+    }
+
+    public scrollToIndexAnimated(index: number) {
+        const nativeView = this.nativeViewProtected;
+        if (nativeView) {
+            nativeView.smoothScrollToPosition(index);
         }
     }
 
@@ -168,6 +169,13 @@ export class ListView extends ListViewBase {
 
         this._realizedItems.clear();
         this._realizedTemplates.clear();
+    }
+
+    public isItemAtIndexVisible(index: number): boolean {
+        let nativeView = this.nativeViewProtected;
+        const start = nativeView.getFirstVisiblePosition();
+        const end =  nativeView.getLastVisiblePosition();
+        return ( index >= start && index <= end );
     }
 
     [separatorColorProperty.getDefault](): { dividerHeight: number, divider: android.graphics.drawable.Drawable } {

@@ -1,4 +1,5 @@
 ﻿import { StackLayoutBase, View, layout, VerticalAlignment, HorizontalAlignment } from "./stack-layout-common";
+import * as trace from "../../../trace";
 
 export * from "./stack-layout-common";
 
@@ -51,7 +52,16 @@ export class StackLayout extends StackLayoutBase {
 
         this.eachLayoutChild((child, last) => {
             if (isVertical) {
+
+                // Measuring ListView, with no height property set, with layout.AT_MOST will 
+                // result in total height equal to the count ot all items multiplied by DEFAULT_HEIGHT = 44 or the 
+                // maximum available space for the StackLayout. Any following controls will be visible only if enough space left.
                 childSize = View.measureChild(this, child, childMeasureSpec, layout.makeMeasureSpec(remainingLength, measureSpec));
+
+                if (measureSpec === layout.AT_MOST && this.isUnsizedScrollableView(child)) {
+                    trace.write("Avoid using ListView or ScrollView with no explicit height set inside StackLayout. Doing so might result in poor user interface performance and poor user experience.", trace.categories.Layout, trace.messageType.warn);
+                }
+
                 measureWidth = Math.max(measureWidth, childSize.measuredWidth);
                 let viewHeight = childSize.measuredHeight;
                 measureHeight += viewHeight;
@@ -83,19 +93,21 @@ export class StackLayout extends StackLayoutBase {
 
     public onLayout(left: number, top: number, right: number, bottom: number): void {
         super.onLayout(left, top, right, bottom);
+
+        const insets = this.getSafeAreaInsets();
         if (this.orientation === "vertical") {
-            this.layoutVertical(left, top, right, bottom);
+            this.layoutVertical(left, top, right, bottom, insets);
         }
         else {
-            this.layoutHorizontal(left, top, right, bottom);
+            this.layoutHorizontal(left, top, right, bottom, insets);
         }
     }
 
-    private layoutVertical(left: number, top: number, right: number, bottom: number): void {
-        const paddingLeft = this.effectiveBorderLeftWidth + this.effectivePaddingLeft;
-        const paddingTop = this.effectiveBorderTopWidth + this.effectivePaddingTop;
-        const paddingRight = this.effectiveBorderRightWidth + this.effectivePaddingRight;
-        const paddingBottom = this.effectiveBorderBottomWidth + this.effectivePaddingBottom;
+    private layoutVertical(left: number, top: number, right: number, bottom: number, insets: { left, top, right, bottom }): void {
+        const paddingLeft = this.effectiveBorderLeftWidth + this.effectivePaddingLeft + insets.left;
+        const paddingTop = this.effectiveBorderTopWidth + this.effectivePaddingTop + insets.top;
+        const paddingRight = this.effectiveBorderRightWidth + this.effectivePaddingRight + insets.right;
+        const paddingBottom = this.effectiveBorderBottomWidth + this.effectivePaddingBottom + insets.bottom;
 
         let childTop: number;
         let childLeft: number = paddingLeft;
@@ -125,11 +137,11 @@ export class StackLayout extends StackLayoutBase {
         })
     }
 
-    private layoutHorizontal(left: number, top: number, right: number, bottom: number): void {
-        const paddingLeft = this.effectiveBorderLeftWidth + this.effectivePaddingLeft;
-        const paddingTop = this.effectiveBorderTopWidth + this.effectivePaddingTop;
-        const paddingRight = this.effectiveBorderRightWidth + this.effectivePaddingRight;
-        const paddingBottom = this.effectiveBorderBottomWidth + this.effectivePaddingBottom;
+    private layoutHorizontal(left: number, top: number, right: number, bottom: number, insets: { left, top, right, bottom }): void {
+        const paddingLeft = this.effectiveBorderLeftWidth + this.effectivePaddingLeft + insets.left;
+        const paddingTop = this.effectiveBorderTopWidth + this.effectivePaddingTop + insets.top;
+        const paddingRight = this.effectiveBorderRightWidth + this.effectivePaddingRight + insets.right;
+        const paddingBottom = this.effectiveBorderBottomWidth + this.effectivePaddingBottom + insets.bottom;
 
         let childTop: number = paddingTop;
         let childLeft: number;
@@ -157,5 +169,13 @@ export class StackLayout extends StackLayoutBase {
             View.layoutChild(this, child, childLeft, childTop, childLeft + childWidth, childBottom);
             childLeft += childWidth;
         });
+    }
+
+    private isUnsizedScrollableView(child: View): boolean {
+        if (child.height === "auto" && (child.ios instanceof UITableView || child.ios instanceof UIScrollView)) {
+            return true;
+        }
+
+        return false;
     }
 }

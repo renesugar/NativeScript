@@ -2,16 +2,17 @@ import { getNodeById } from "./dom-node";
 
 // Needed for typings only
 import { ViewBase } from "../ui/core/view-base";
+import { mainThreadify } from "../utils/utils";
 
 // Use lazy requires for core modules
-const frameTopmost = () => { return require("../ui/frame").topmost(); };
+const frameTopmost = () => require("../ui/frame").topmost();
 
 let unsetValue;
 function unsetViewValue(view, name) {
     if (!unsetValue) {
         unsetValue = require("../ui/core/properties").unsetValue;
     }
-    
+
     view[name] = unsetValue;
 }
 
@@ -30,10 +31,10 @@ export function getDocument() {
     if (!topMostFrame) {
         return undefined;
     }
-    
+
     try {
         topMostFrame.ensureDomNode();
-        
+
     } catch (e) {
         console.log("ERROR in getDocument(): " + e);
     }
@@ -49,7 +50,7 @@ export function getComputedStylesForNode(nodeId): Array<{ name: string, value: s
     return [];
 }
 
-export function removeNode(nodeId) {
+export const removeNode = mainThreadify(function removeNode(nodeId) {
     const view = getViewById(nodeId);
     if (view) {
         // Avoid importing layout and content view
@@ -63,9 +64,9 @@ export function removeNode(nodeId) {
             console.log("Can't remove child from " + parent);
         }
     }
-}
+});
 
-export function setAttributeAsText(nodeId, text, name) {
+export const setAttributeAsText = mainThreadify(function setAttributeAsText(nodeId, text, name) {
     const view = getViewById(nodeId);
     if (view) {
         // attribute is registered for the view instance
@@ -76,7 +77,7 @@ export function setAttributeAsText(nodeId, text, name) {
 
             if (textParts.length === 2) {
                 let attrName = textParts[0];
-                let attrValue = textParts[1].replace(/['"]+/g, '');
+                let attrValue = textParts[1].replace(/['"]+/g, "");
 
                 // if attr name is being replaced with another
                 if (name !== attrName && hasOriginalAttribute) {
@@ -93,4 +94,4 @@ export function setAttributeAsText(nodeId, text, name) {
 
         view.domNode.loadAttributes();
     }
-}
+});

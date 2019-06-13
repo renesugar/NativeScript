@@ -36,7 +36,7 @@ export namespace domains {
     }
 }
 
-var network;
+let network;
 
 export function getNetwork(): domains.network.NetworkDomainDebugger {
     return network;
@@ -45,9 +45,9 @@ export function setNetwork(newNetwork: domains.network.NetworkDomainDebugger) {
     network = newNetwork;
 }
 
-var dom;
+let dom;
 
-export function getDOM():any {
+export function getDOM(): any {
     return dom;
 }
 
@@ -55,7 +55,7 @@ export function setDOM(newDOM) {
     dom = newDOM;
 }
 
-var css;
+let css;
 
 export function getCSS(): any {
     return css;
@@ -70,6 +70,8 @@ export namespace NetworkAgent {
         url: string;
         method: string;
         headers: any;
+        initialPriority: string;
+        referrerPolicy: string;
         postData?: string;
     }
 
@@ -79,6 +81,7 @@ export namespace NetworkAgent {
         request: Request;
         timestamp: number;
         type: string;
+        wallTime: number;
     }
 
     export interface Response {
@@ -88,6 +91,10 @@ export namespace NetworkAgent {
         headers: any;
         headersText?: string;
         mimeType: string;
+        connectionReused: boolean;
+        connectionId: number;
+        encodedDataLength: number;
+        securityState: string;
         fromDiskCache?: boolean;
     }
 
@@ -113,13 +120,23 @@ export namespace NetworkAgent {
         const requestIdStr = requestId.toString();
         // Content-Type and content-type are both common in headers spelling
         const mimeType: string = <string>headers["Content-Type"] || <string>headers["content-type"] || "application/octet-stream";
+        const contentLengthHeader: string = <string>headers["Content-Length"] || <string>headers["content-length"];
+        let contentLength = parseInt(contentLengthHeader, 10);
+        if (isNaN(contentLength)) {
+            contentLength = 0;
+        }
+
         const response: NetworkAgent.Response = {
             url: result.url || "",
             status: result.statusCode,
             statusText: result.statusText || "",
             headers: headers,
             mimeType: mimeType,
-            fromDiskCache: false
+            fromDiskCache: false,
+            connectionReused: true,
+            connectionId: 0,
+            encodedDataLength: contentLength,
+            securityState: "info"
         }
 
         const responseData: NetworkAgent.ResponseData = {
@@ -130,7 +147,11 @@ export namespace NetworkAgent {
         }
 
         global.__inspector.responseReceived(responseData);
-        global.__inspector.loadingFinished({ requestId: requestIdStr, timestamp: getTimeStamp() });
+        global.__inspector.loadingFinished({
+            requestId: requestIdStr,
+            timestamp: getTimeStamp(),
+            encodedDataLength: contentLength
+        });
 
         const hasTextContent = responseData.type === "Document" || responseData.type === "Script";
         let data;
@@ -164,7 +185,9 @@ export namespace NetworkAgent {
             url: options.url,
             method: options.method,
             headers: options.headers || {},
-            postData: options.content ? options.content.toString() : ""
+            postData: options.content ? options.content.toString() : "",
+            initialPriority: "Medium",
+            referrerPolicy: "no-referrer-when-downgrade"
         }
 
         const requestData: NetworkAgent.RequestData = {
@@ -172,14 +195,15 @@ export namespace NetworkAgent {
             url: request.url,
             request: request,
             timestamp: getTimeStamp(),
-            type: "Document"
+            type: "Document",
+            wallTime: 0
         }
 
         global.__inspector.requestWillBeSent(requestData);
     }
 
     function getTimeStamp(): number {
-        var d = new Date();
+        const d = new Date();
         return Math.round(d.getTime() / 1000);
     }
 

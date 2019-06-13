@@ -1,23 +1,10 @@
 ﻿// Required by TypeScript compiler
-require("./decorators");
-
-// Required by V8 snapshot generator
-if (!global.__extends) {
-    global.__extends = function (d, b) {
-        for (var p in b) {
-            if (b.hasOwnProperty(p)) {
-                d[p] = b[p];
-            }
-        }
-        function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
-    };
-}
+require("./ts-helpers");
 
 // This method iterates all the keys in the source exports object and copies them to the destination exports one.
 // Note: the method will not check for naming collisions and will override any already existing entries in the destination exports.
 global.moduleMerge = function (sourceExports: any, destExports: any) {
-    for (var key in sourceExports) {
+    for (let key in sourceExports) {
         destExports[key] = sourceExports[key];
     }
 }
@@ -126,8 +113,6 @@ global.registerModule("fetch", () => require("fetch"));
     }
 }
 
-const __tnsGlobalMergedModules = new Map<string, boolean>();
-
 function registerOnGlobalContext(name: string, module: string): void {
 
     Object.defineProperty(global, name, {
@@ -150,10 +135,10 @@ export function install() {
     if ((<any>global).__snapshot || (<any>global).__snapshotEnabled) {
         if (!snapshotGlobals) {
             // require in snapshot mode is cheap
-            var timer: typeof timerModule = require("timer");
-            var dialogs: typeof dialogsModule = require("ui/dialogs");
-            var xhr = require("xhr");
-            var fetch = require("fetch");
+            const timer: typeof timerModule = require("timer");
+            const dialogs: typeof dialogsModule = require("ui/dialogs");
+            const xhr = require("xhr");
+            const fetch = require("fetch");
 
             snapshotGlobals = snapshotGlobals || {
                 setTimeout: timer.setTimeout,
@@ -176,7 +161,7 @@ export function install() {
                 Response: fetch.Response,
             }
         }
-        var consoleModule = require("console").Console;
+        const consoleModule = require("console").Console;
         // Object.assign call will fire an error when trying to write to a read-only property of an object, such as 'console'
         global.console = global.console || new consoleModule();
         Object.assign(global, snapshotGlobals);
@@ -205,10 +190,10 @@ install();
 
 export function Deprecated(target: Object, key?: string | symbol, descriptor?: any) {
     if (descriptor) {
-        var originalMethod = descriptor.value;
+        const originalMethod = descriptor.value;
 
         descriptor.value = function (...args: any[]) {
-            console.log(`${key} is deprecated`);
+            console.log(`${key.toString()} is deprecated`);
 
             return originalMethod.apply(this, args);
         }
@@ -224,10 +209,10 @@ global.Deprecated = Deprecated;
 
 export function Experimental(target: Object, key?: string | symbol, descriptor?: any) {
     if (descriptor) {
-        var originalMethod = descriptor.value;
+        const originalMethod = descriptor.value;
 
         descriptor.value = function (...args: any[]) {
-            console.log(`${key} is experimental`);
+            console.log(`${key.toString()} is experimental`);
 
             return originalMethod.apply(this, args);
         }

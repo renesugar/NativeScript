@@ -3,20 +3,22 @@ import { Font } from "../styling/font";
 import {
     TextBaseCommon, textProperty, formattedTextProperty, textAlignmentProperty, textDecorationProperty,
     textTransformProperty, letterSpacingProperty, colorProperty, fontInternalProperty, lineHeightProperty,
-    FormattedString, Span, Color, isBold
+    FormattedString, Span, Color, isBold, resetSymbol
 } from "./text-base-common";
+import { isString } from "../../utils/types";
 
 export * from "./text-base-common";
 
 export class TextBase extends TextBaseCommon {
 
     public nativeViewProtected: UITextField | UITextView | UILabel | UIButton;
+    public nativeTextViewProtected: UITextField | UITextView | UILabel | UIButton;
 
-    [textProperty.getDefault](): number {
-        return -1;
+    [textProperty.getDefault](): number | symbol {
+        return resetSymbol;
     }
-    [textProperty.setNative](value: string | number) {
-        const reset = value === -1;
+    [textProperty.setNative](value: string | number | symbol) {
+        const reset = value === resetSymbol;
         if (!reset && this.formattedText) {
             return;
         }
@@ -27,12 +29,12 @@ export class TextBase extends TextBaseCommon {
 
     [formattedTextProperty.setNative](value: FormattedString) {
         this._setNativeText();
-        textProperty.nativeValueChange(this, !value ? '' : value.toString());
+        textProperty.nativeValueChange(this, !value ? "" : value.toString());
         this._requestLayoutOnTextChanged();
     }
 
     [colorProperty.getDefault](): UIColor {
-        let nativeView = this.nativeViewProtected;
+        let nativeView = this.nativeTextViewProtected;
         if (nativeView instanceof UIButton) {
             return nativeView.titleColorForState(UIControlState.Normal);
         } else {
@@ -41,7 +43,7 @@ export class TextBase extends TextBaseCommon {
     }
     [colorProperty.setNative](value: Color | UIColor) {
         const color = value instanceof Color ? value.ios : value;
-        const nativeView = this.nativeViewProtected;
+        const nativeView = this.nativeTextViewProtected;
         if (nativeView instanceof UIButton) {
             nativeView.setTitleColorForState(color, UIControlState.Normal);
             nativeView.titleLabel.textColor = color;
@@ -51,13 +53,13 @@ export class TextBase extends TextBaseCommon {
     }
 
     [fontInternalProperty.getDefault](): UIFont {
-        let nativeView = this.nativeViewProtected;
+        let nativeView = this.nativeTextViewProtected;
         nativeView = nativeView instanceof UIButton ? nativeView.titleLabel : nativeView;
         return nativeView.font;
     }
     [fontInternalProperty.setNative](value: Font | UIFont) {
         if (!(value instanceof Font) || !this.formattedText) {
-            let nativeView = this.nativeViewProtected;
+            let nativeView = this.nativeTextViewProtected;
             nativeView = nativeView instanceof UIButton ? nativeView.titleLabel : nativeView;
             const font = value instanceof Font ? value.getUIFont(nativeView.font) : value;
             nativeView.font = font;
@@ -65,7 +67,7 @@ export class TextBase extends TextBaseCommon {
     }
 
     [textAlignmentProperty.setNative](value: TextAlignment) {
-        const nativeView = <UITextField | UITextView | UILabel>this.nativeViewProtected;
+        const nativeView = <UITextField | UITextView | UILabel>this.nativeTextViewProtected;
         switch (value) {
             case "initial":
             case "left":
@@ -98,7 +100,7 @@ export class TextBase extends TextBaseCommon {
 
     _setNativeText(reset: boolean = false): void {
         if (reset) {
-            const nativeView = this.nativeViewProtected;
+            const nativeView = this.nativeTextViewProtected;
             if (nativeView instanceof UIButton) {
                 // Clear attributedText or title won't be affected.
                 nativeView.setAttributedTitleForState(null, UIControlState.Normal);
@@ -123,22 +125,30 @@ export class TextBase extends TextBaseCommon {
         const attrText = this.createNSMutableAttributedString(this.formattedText);
         // TODO: letterSpacing should be applied per Span.
         if (this.letterSpacing !== 0) {
-            attrText.addAttributeValueRange(NSKernAttributeName, this.letterSpacing * this.nativeViewProtected.font.pointSize, { location: 0, length: attrText.length });
+            attrText.addAttributeValueRange(NSKernAttributeName, this.letterSpacing * this.nativeTextViewProtected.font.pointSize, { location: 0, length: attrText.length });
         }
 
         if (this.style.lineHeight) {
             const paragraphStyle = NSMutableParagraphStyle.alloc().init();
             paragraphStyle.lineSpacing = this.lineHeight;
             // make sure a possible previously set text alignment setting is not lost when line height is specified
-            paragraphStyle.alignment = (<UITextField | UITextView | UILabel>this.nativeViewProtected).textAlignment;
+            paragraphStyle.alignment = (<UITextField | UITextView | UILabel>this.nativeTextViewProtected).textAlignment;
+            if (this.nativeTextViewProtected instanceof  UILabel) {
+                // make sure a possible previously set line break mode is not lost when line height is specified
+                paragraphStyle.lineBreakMode = this.nativeTextViewProtected.lineBreakMode;
+            }
+            attrText.addAttributeValueRange(NSParagraphStyleAttributeName, paragraphStyle, { location: 0, length: attrText.length });
+        } else if (this.nativeTextViewProtected instanceof UITextView) {
+            const paragraphStyle = NSMutableParagraphStyle.alloc().init();
+            paragraphStyle.alignment = (<UITextView>this.nativeTextViewProtected).textAlignment;
             attrText.addAttributeValueRange(NSParagraphStyleAttributeName, paragraphStyle, { location: 0, length: attrText.length });
         }
 
-        if (this.nativeViewProtected instanceof UIButton) {
-            this.nativeViewProtected.setAttributedTitleForState(attrText, UIControlState.Normal);
+        if (this.nativeTextViewProtected instanceof UIButton) {
+            this.nativeTextViewProtected.setAttributedTitleForState(attrText, UIControlState.Normal);
         }
         else {
-            this.nativeViewProtected.attributedText = attrText;
+            this.nativeTextViewProtected.attributedText = attrText;
         }
     }
 
@@ -149,12 +159,15 @@ export class TextBase extends TextBaseCommon {
             case "none":
                 break;
             case "underline":
+                // TODO: Replace deprecated `StyleSingle` with `Single` after the next typings update
                 dict.set(NSUnderlineStyleAttributeName, NSUnderlineStyle.StyleSingle);
                 break;
             case "line-through":
+                // TODO: Replace deprecated `StyleSingle` with `Single` after the next typings update
                 dict.set(NSStrikethroughStyleAttributeName, NSUnderlineStyle.StyleSingle);
                 break;
             case "underline line-through":
+                // TODO: Replace deprecated `StyleSingle` with `Single` after the next typings update
                 dict.set(NSUnderlineStyleAttributeName, NSUnderlineStyle.StyleSingle);
                 dict.set(NSStrikethroughStyleAttributeName, NSUnderlineStyle.StyleSingle);
                 break;
@@ -163,59 +176,67 @@ export class TextBase extends TextBaseCommon {
         }
 
         if (style.letterSpacing !== 0) {
-            dict.set(NSKernAttributeName, style.letterSpacing * this.nativeViewProtected.font.pointSize);
+            dict.set(NSKernAttributeName, style.letterSpacing * this.nativeTextViewProtected.font.pointSize);
         }
 
+        const isTextView = this.nativeTextViewProtected instanceof UITextView;
         if (style.lineHeight) {
             const paragraphStyle = NSMutableParagraphStyle.alloc().init();
             paragraphStyle.lineSpacing = style.lineHeight;
             // make sure a possible previously set text alignment setting is not lost when line height is specified
-            paragraphStyle.alignment = (<UITextField | UITextView | UILabel>this.nativeViewProtected).textAlignment;
+            paragraphStyle.alignment = (<UITextField | UITextView | UILabel>this.nativeTextViewProtected).textAlignment;
+            if (this.nativeTextViewProtected instanceof  UILabel) {
+                // make sure a possible previously set line break mode is not lost when line height is specified
+                paragraphStyle.lineBreakMode = this.nativeTextViewProtected.lineBreakMode;
+            }
+            dict.set(NSParagraphStyleAttributeName, paragraphStyle);
+        } else if (isTextView) {
+            const paragraphStyle = NSMutableParagraphStyle.alloc().init();
+            paragraphStyle.alignment = (<UITextView>this.nativeTextViewProtected).textAlignment;
             dict.set(NSParagraphStyleAttributeName, paragraphStyle);
         }
 
-        const isTextView = this.nativeViewProtected instanceof UITextView;
         if (style.color && (dict.size > 0 || isTextView)) {
             dict.set(NSForegroundColorAttributeName, style.color.ios);
         }
 
         const text = this.text;
-        const string = (text === undefined || text === null) ? '' : text.toString();
+        const string = (text === undefined || text === null) ? "" : text.toString();
         const source = getTransformedText(string, this.textTransform);
         if (dict.size > 0 || isTextView) {
             if (isTextView) {
                 // UITextView's font seems to change inside.
-                dict.set(NSFontAttributeName, this.nativeViewProtected.font);
+                dict.set(NSFontAttributeName, this.nativeTextViewProtected.font);
             }
-            
+
             const result = NSMutableAttributedString.alloc().initWithString(source);
             result.setAttributesRange(<any>dict, { location: 0, length: source.length });
-            if (this.nativeViewProtected instanceof UIButton) {
-                this.nativeViewProtected.setAttributedTitleForState(result, UIControlState.Normal);
+            if (this.nativeTextViewProtected instanceof UIButton) {
+                this.nativeTextViewProtected.setAttributedTitleForState(result, UIControlState.Normal);
             } else {
-                this.nativeViewProtected.attributedText = result;
+                this.nativeTextViewProtected.attributedText = result;
             }
         } else {
-            if (this.nativeViewProtected instanceof UIButton) {
+            if (this.nativeTextViewProtected instanceof UIButton) {
                 // Clear attributedText or title won't be affected.
-                this.nativeViewProtected.setAttributedTitleForState(null, UIControlState.Normal);
-                this.nativeViewProtected.setTitleForState(source, UIControlState.Normal);
+                this.nativeTextViewProtected.setAttributedTitleForState(null, UIControlState.Normal);
+                this.nativeTextViewProtected.setTitleForState(source, UIControlState.Normal);
             } else {
                 // Clear attributedText or text won't be affected.
-                this.nativeViewProtected.attributedText = undefined;
-                this.nativeViewProtected.text = source;
+                this.nativeTextViewProtected.attributedText = undefined;
+                this.nativeTextViewProtected.text = source;
             }
         }
     }
 
     createNSMutableAttributedString(formattedString: FormattedString): NSMutableAttributedString {
         let mas = NSMutableAttributedString.alloc().init();
-        if (formattedString) {
+        if (formattedString && formattedString.parent) {
             for (let i = 0, spanStart = 0, length = formattedString.spans.length; i < length; i++) {
                 const span = formattedString.spans.getItem(i);
                 const text = span.text;
                 const textTransform = (<TextBase>formattedString.parent).textTransform;
-                let spanText = (text === null || text === undefined) ? '' : text.toString();
+                let spanText = (text === null || text === undefined) ? "" : text.toString();
                 if (textTransform !== "none" && textTransform !== "initial") {
                     spanText = getTransformedText(spanText, textTransform);
                 }
@@ -229,7 +250,7 @@ export class TextBase extends TextBaseCommon {
     }
 
     createMutableStringForSpan(span: Span, text: string): NSMutableAttributedString {
-        const viewFont = this.nativeViewProtected.font;
+        const viewFont = this.nativeTextViewProtected.font;
         let attrDict = <{ key: string, value: any }>{};
         const style = span.style;
         const bold = isBold(style.fontWeight);
@@ -270,12 +291,12 @@ export class TextBase extends TextBaseCommon {
 
         if (valueSource) {
             const textDecorations = valueSource.textDecoration;
-            const underline = textDecorations.indexOf('underline') !== -1;
+            const underline = textDecorations.indexOf("underline") !== -1;
             if (underline) {
                 attrDict[NSUnderlineStyleAttributeName] = underline;
             }
 
-            const strikethrough = textDecorations.indexOf('line-through') !== -1;
+            const strikethrough = textDecorations.indexOf("line-through") !== -1;
             if (strikethrough) {
                 attrDict[NSStrikethroughStyleAttributeName] = strikethrough;
             }
@@ -286,6 +307,10 @@ export class TextBase extends TextBaseCommon {
 }
 
 export function getTransformedText(text: string, textTransform: TextTransform): string {
+    if (!text || !isString(text)) {
+        return "";
+    }
+
     switch (textTransform) {
         case "uppercase":
             return NSStringFromNSAttributedString(text).uppercaseString;

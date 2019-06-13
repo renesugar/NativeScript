@@ -1,6 +1,6 @@
 // Types
-import { unsetValue, Style, 
-    CssProperty, CssAnimationProperty, 
+import { unsetValue, Style,
+    CssProperty, CssAnimationProperty,
     ShorthandProperty, InheritedCssProperty,
     makeValidator, makeParser } from "../core/properties";
 import {
@@ -27,6 +27,7 @@ import {
 } from "../../matrix";
 
 import * as parser from "../../css/parser";
+import { LinearGradient } from "./linear-gradient";
 
 export type LengthDipUnit = { readonly unit: "dip", readonly value: dip };
 export type LengthPxUnit = { readonly unit: "px", readonly value: px };
@@ -48,13 +49,19 @@ function equalsCommon(a: PercentLength, b: PercentLength): boolean {
         if (typeof b === "number") {
             return a == b; // tslint:disable-line
         }
+        if (!b) {
+            return false;
+        }
         return b.unit == "dip" && a == b.value; // tslint:disable-line
     }
     if (b == "auto") { // tslint:disable-line
         return false;
     }
     if (typeof b === "number") {
-        return a.unit == "dip" && a.value == b; // tslint:disable-line
+        return a ? (a.unit == "dip" && a.value == b) : false; // tslint:disable-line
+    }
+    if (!a || !b) {
+        return false;
     }
     return a.value == b.value && a.unit == b.unit; // tslint:disable-line
 }
@@ -83,6 +90,9 @@ function toDevicePixelsCommon(length: PercentLength, auto: number = Number.NaN, 
     if (typeof length === "number") {
         return layout.round(layout.toDevicePixels(length));
     }
+    if (!length) {
+        return auto;
+    }
     switch (length.unit) {
         case "px":
             return layout.round(length.value);
@@ -108,6 +118,7 @@ export namespace PercentLength {
                 if (percentIndex !== (stringValue.length - 1) || percentIndex === 0) {
                     value = Number.NaN;
                 } else {
+                    // Normalize result to values between -1 and 1
                     value = parseFloat(stringValue.substring(0, stringValue.length - 1).trim()) / 100;
                 }
 
@@ -187,10 +198,28 @@ export const minHeightProperty = new CssProperty<Style, Length>({
 });
 minHeightProperty.register(Style);
 
-export const widthProperty = new CssProperty<Style, PercentLength>({ name: "width", cssName: "width", defaultValue: "auto", affectsLayout: isIOS, equalityComparer: Length.equals, valueConverter: PercentLength.parse });
+export const widthProperty = new CssAnimationProperty<Style, PercentLength>({
+    name: "width", cssName: "width", defaultValue: "auto", equalityComparer: Length.equals,
+    // TODO: CSSAnimationProperty was needed for keyframe (copying other impls), but `affectsLayout` does not exist
+    //       on the animation property, so fake it here. x_x
+    valueChanged: (target, oldValue, newValue) => {
+        if (isIOS) {
+            target.view.requestLayout();
+        }
+    }, valueConverter: PercentLength.parse });
 widthProperty.register(Style);
 
-export const heightProperty = new CssProperty<Style, PercentLength>({ name: "height", cssName: "height", defaultValue: "auto", affectsLayout: isIOS, equalityComparer: Length.equals, valueConverter: PercentLength.parse });
+export const heightProperty = new CssAnimationProperty<Style, PercentLength>({
+    name: "height", cssName: "height", defaultValue: "auto", equalityComparer: Length.equals,
+    // TODO: CSSAnimationProperty was needed for keyframe (copying other impls), but `affectsLayout` does not exist
+    //       on the animation property, so fake it here. -_-
+    valueChanged: (target, oldValue, newValue) => {
+        if (isIOS) {
+            target.view.requestLayout();
+        }
+    }, valueConverter: PercentLength.parse,
+
+});
 heightProperty.register(Style);
 
 const marginProperty = new ShorthandProperty<Style, string | PercentLength>({
@@ -494,7 +523,7 @@ export function transformConverter(text: string): TransformFunctionsInfo {
 
     const usedTransforms = transformations.map(t => t.property);
     if (!hasDuplicates(usedTransforms)) {
-        const fullTransformations = Object.assign({}, IDENTITY_TRANSFORMATION);
+        const fullTransformations = { ...IDENTITY_TRANSFORMATION };
         transformations.forEach(transform => {
             fullTransformations[transform.property] = transform.value;
         });
@@ -563,10 +592,28 @@ export const backgroundInternalProperty = new CssProperty<Style, Background>({
 backgroundInternalProperty.register(Style);
 
 // const pattern: RegExp = /url\(('|")(.*?)\1\)/;
-export const backgroundImageProperty = new CssProperty<Style, string>({
+export const backgroundImageProperty = new CssProperty<Style, string | LinearGradient>({
     name: "backgroundImage", cssName: "background-image", valueChanged: (target, oldValue, newValue) => {
         const background = target.backgroundInternal.withImage(newValue);
         target.backgroundInternal = background;
+    },
+    equalityComparer: (value1, value2) => {
+        if (value1 instanceof LinearGradient && value2 instanceof LinearGradient) {
+            return LinearGradient.equals(value1, value2)
+        } else {
+            return value1 === value2;
+        }
+    },
+    valueConverter: (value: any) => {
+        if (typeof value === "string") {
+            const parsed = parser.parseBackground(value);
+            if (parsed) {
+                const background = parsed.value;
+                value = (typeof background.image === "object") ? LinearGradient.parse(background.image) : value;
+            }
+        }
+
+        return value;
     }
 });
 backgroundImageProperty.register(Style);
@@ -618,7 +665,14 @@ function convertToBackgrounds(this: void, value: string): [CssProperty<any, any>
     if (typeof value === "string") {
         const backgrounds = parser.parseBackground(value).value;
         const backgroundColor = backgrounds.color ? new Color(backgrounds.color) : unsetValue;
-        const backgroundImage = backgrounds.image || unsetValue;
+
+        let backgroundImage: string | LinearGradient;
+        if (typeof backgrounds.image === "object" && backgrounds.image) {
+            backgroundImage = LinearGradient.parse(backgrounds.image);
+        } else {
+            backgroundImage = backgrounds.image || unsetValue;
+        }
+
         const backgroundRepeat = backgrounds.repeat || unsetValue;
         const backgroundPosition = backgrounds.position ? backgrounds.position.text : unsetValue;
 
@@ -1073,3 +1127,9 @@ export const visibilityProperty = new CssProperty<Style, Visibility>({
     }
 });
 visibilityProperty.register(Style);
+
+export const androidElevationProperty = new CssProperty<Style, number>({ name: "androidElevation", cssName: "android-elevation", valueConverter: parseFloat });
+androidElevationProperty.register(Style);
+
+export const androidDynamicElevationOffsetProperty = new CssProperty<Style, number>({ name: "androidDynamicElevationOffset", cssName: "android-dynamic-elevation-offset", valueConverter: parseFloat });
+androidDynamicElevationOffsetProperty.register(Style);

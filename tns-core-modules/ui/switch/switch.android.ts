@@ -1,5 +1,5 @@
 ﻿import {
-    SwitchBase, Color, colorProperty, backgroundColorProperty, backgroundInternalProperty, checkedProperty
+    SwitchBase, Color, colorProperty, backgroundColorProperty, backgroundInternalProperty, checkedProperty, offBackgroundColorProperty
 } from "./switch-common";
 
 export * from "./switch-common";
@@ -36,24 +36,40 @@ export class Switch extends SwitchBase {
     public checked: boolean;
 
     public createNativeView() {
-        initializeCheckedChangeListener();
-        const nativeView = new android.widget.Switch(this._context);
-        const listener = new CheckedChangeListener(this);
-        nativeView.setOnCheckedChangeListener(listener);
-        (<any>nativeView).listener = listener;
-        return nativeView;
+        return new android.widget.Switch(this._context);
     }
 
     public initNativeView(): void {
         super.initNativeView();
-        const nativeView: any = this.nativeViewProtected;
-        nativeView.listener.owner = this;
+        const nativeView = this.nativeViewProtected;
+        initializeCheckedChangeListener();
+        const listener = new CheckedChangeListener(this);
+        nativeView.setOnCheckedChangeListener(listener);
+        (<any>nativeView).listener = listener;
     }
 
     public disposeNativeView() {
         const nativeView: any = this.nativeViewProtected;
         nativeView.listener.owner = null;
         super.disposeNativeView();
+    }
+
+    private setNativeBackgroundColor(value: string | number | Color) {
+        if (value instanceof Color) {
+            this.nativeViewProtected.getTrackDrawable().setColorFilter(value.android, android.graphics.PorterDuff.Mode.SRC_IN);
+        } else {
+            this.nativeViewProtected.getTrackDrawable().clearColorFilter();
+        }
+    }
+
+    _onCheckedPropertyChanged(newValue: boolean) {
+        if (this.offBackgroundColor) {
+            if (!newValue) {
+                this.setNativeBackgroundColor(this.offBackgroundColor);
+            } else {
+                this.setNativeBackgroundColor(this.backgroundColor);
+            }
+        }
     }
 
     [checkedProperty.getDefault](): boolean {
@@ -78,10 +94,8 @@ export class Switch extends SwitchBase {
         return -1;
     }
     [backgroundColorProperty.setNative](value: number | Color) {
-        if (value instanceof Color) {
-            this.nativeViewProtected.getTrackDrawable().setColorFilter(value.android, android.graphics.PorterDuff.Mode.SRC_IN);
-        } else {
-            this.nativeViewProtected.getTrackDrawable().clearColorFilter();
+        if (!this.offBackgroundColor || this.checked) {
+            this.setNativeBackgroundColor(value);
         }
     }
 
@@ -90,5 +104,14 @@ export class Switch extends SwitchBase {
     }
     [backgroundInternalProperty.setNative](value: any) {
         //
+    }
+
+    [offBackgroundColorProperty.getDefault](): number {
+        return -1;
+    }
+    [offBackgroundColorProperty.setNative](value: number | Color) {
+        if (!this.checked) {
+            this.setNativeBackgroundColor(value);
+        }
     }
 }

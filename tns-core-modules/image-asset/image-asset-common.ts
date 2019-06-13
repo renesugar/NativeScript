@@ -2,12 +2,17 @@ import * as definition from ".";
 import * as observable from "../data/observable";
 import * as platform from "../platform";
 
-export class ImageAsset  extends observable.Observable implements definition.ImageAsset {
+export class ImageAsset extends observable.Observable implements definition.ImageAsset {
     private _options: definition.ImageAssetOptions;
     private _nativeImage: any;
 
     ios: PHAsset;
     android: string;
+
+    constructor() {
+        super();
+        this._options = { keepAspectRatio: true, autoScaleFactor: true };
+    }
 
     get options(): definition.ImageAssetOptions {
         return this._options;
@@ -33,8 +38,7 @@ export class ImageAsset  extends observable.Observable implements definition.Ima
 export function getAspectSafeDimensions(sourceWidth, sourceHeight, reqWidth, reqHeight) {
     let widthCoef = sourceWidth / reqWidth;
     let heightCoef = sourceHeight / reqHeight;
-
-    let aspectCoef = widthCoef > heightCoef ? widthCoef : heightCoef;
+    let aspectCoef = Math.min(widthCoef, heightCoef);
 
     return {
         width: Math.floor(sourceWidth / aspectCoef),
@@ -43,10 +47,10 @@ export function getAspectSafeDimensions(sourceWidth, sourceHeight, reqWidth, req
 }
 
 export function getRequestedImageSize(src: { width: number, height: number }, options: definition.ImageAssetOptions): { width: number, height: number } {
-    var screen = platform.screen.mainScreen;
+    const screen = platform.screen.mainScreen;
 
-    var reqWidth = options.width || Math.min(src.width, screen.widthPixels);
-    var reqHeight = options.height || Math.min(src.height, screen.heightPixels);
+    let reqWidth = options.width || Math.min(src.width, screen.widthPixels);
+    let reqHeight = options.height || Math.min(src.height, screen.heightPixels);
 
     if (options && options.keepAspectRatio) {
         let safeAspectSize = getAspectSafeDimensions(src.width, src.height, reqWidth, reqHeight);

@@ -30,6 +30,7 @@ export function loadExamples() {
     examples.set("label-border", "css/label-border");
     examples.set("text-view-border", "css/text-view-border");
     examples.set("image-border", "css/image-border");
+    examples.set("gradient-border", "css/gradient-border");
     examples.set("layouts-border-overlap", "css/layouts-border-overlap");
     examples.set("measure-tests", "css/measure-tests");
     examples.set("all-uniform-border", "css/all-uniform-border");
@@ -37,9 +38,12 @@ export function loadExamples() {
     examples.set("margins-paddings-with-percentage", "css/margins-paddings-with-percentage");
     examples.set("padding-and-border", "css/padding-and-border");
     examples.set("combinators", "css/combinators");
+    examples.set("elevation", "css/elevation");
     examples.set("styled-formatted-text", "css/styled-formatted-text");
     examples.set("non-uniform-radius", "css/non-uniform-radius");
     examples.set("missing-background-image", "css/missing-background-image");
     examples.set("background-shorthand", "css/background-shorthand");
+    examples.set("background-image-linear-gradient", "css/background-image-linear-gradient");
+    examples.set("background-image", "css/background-image");
     return examples;
 }

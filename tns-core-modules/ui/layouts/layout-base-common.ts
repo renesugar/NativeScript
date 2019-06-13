@@ -59,7 +59,7 @@ export class LayoutBaseCommon extends CustomLayoutView implements LayoutBaseDefi
         this._removeView(child);
 
         // TODO: consider caching the index on the child.
-        var index = this._subViews.indexOf(child);
+        const index = this._subViews.indexOf(child);
         this._subViews.splice(index, 1);
         this._unregisterLayoutChild(child);
     }
@@ -106,6 +106,7 @@ export class LayoutBaseCommon extends CustomLayoutView implements LayoutBaseDefi
     }
 
     public clipToBounds: boolean;
+    public isPassThroughParentEnabled: boolean;
 
     public _childIndexToNativeChildIndex(index?: number): number {
         if (index === undefined) {
@@ -128,7 +129,7 @@ export class LayoutBaseCommon extends CustomLayoutView implements LayoutBaseDefi
     }
 
     public eachLayoutChild(callback: (child: View, isLast: boolean) => void): void {
-        var lastChild: View = null;
+        let lastChild: View = null;
 
         this.eachChildView((cv) => {
             cv._eachLayoutView((lv) => {
@@ -151,3 +152,6 @@ export class LayoutBaseCommon extends CustomLayoutView implements LayoutBaseDefi
 
 export const clipToBoundsProperty = new Property<LayoutBaseCommon, boolean>({ name: "clipToBounds", defaultValue: true, valueConverter: booleanConverter });
 clipToBoundsProperty.register(LayoutBaseCommon);
+
+export const isPassThroughParentEnabledProperty = new Property<LayoutBaseCommon, boolean>({ name: "isPassThroughParentEnabled", defaultValue: false, valueConverter: booleanConverter });
+isPassThroughParentEnabledProperty.register(LayoutBaseCommon);

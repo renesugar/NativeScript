@@ -19,8 +19,14 @@ export function loadExamples() {
     examples.set("tabmore", "tab-view/tab-view-more");
     examples.set("tabViewCss", "tab-view/tab-view-css");
     examples.set("tab-view-icons", "tab-view/tab-view-icon");
+    examples.set("tab-view-icons-local", "tab-view/tab-view-icon-local");
     examples.set("tab-view-icon-change", "tab-view/tab-view-icon-change");
     examples.set("text-transform", "tab-view/text-transform");
-    examples.set("tab-view-bottom-position","tab-view/tab-view-bottom-position");
+    examples.set("tab-view-bottom-position", "tab-view/tab-view-bottom-position");
+    examples.set("issue-5470", "tab-view/issue-5470");
+    examples.set("tab-view-tab-text-font-size", "tab-view/tab-view-tab-text-font-size");
+    examples.set("tab-view-android-swipe", "tab-view/tab-view-android-swipe");
+    examples.set("tab-view-icon-title-placement", "tab-view/icon-title-placement");
+    examples.set("tab-text-color", "tab-view/tab-text-color");
     return examples;
 }

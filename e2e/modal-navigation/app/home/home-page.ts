@@ -1,11 +1,10 @@
 import * as application from "tns-core-modules/application";
 import { StackLayout } from "tns-core-modules/ui/layouts/stack-layout";
 import { NavigatedData, Page } from "tns-core-modules/ui/page";
-import { View, EventData } from "tns-core-modules/ui/core/view";
+import { View, EventData, ShowModalOptions } from "tns-core-modules/ui/core/view";
 import { Frame } from "tns-core-modules/ui/frame";
 
 export function onNavigatingTo(args: NavigatedData) {
-    const page = <StackLayout>args.object;
     console.log("home-page onNavigatingTo");
 }
 
@@ -19,6 +18,29 @@ export function onNavigatedTo(args: NavigatedData) {
 
 export function onNavigatedFrom(args: NavigatedData) {
     console.log("home-page onNavigatedFrom");
+}
+
+export function onModalNoPage(args: EventData) {
+    const view = args.object as View;
+
+    view.showModal("modal-no-page/modal-no-page",
+        "context",
+        () => console.log("home-page modal frame closed"),
+        false);
+}
+
+export function onPopoverModal(args: EventData) {
+    const view = args.object as View;
+    let options: ShowModalOptions = {
+        context: "context",
+        closeCallback: () => console.log("home-page modal popover frame closed"),
+        animated: false,
+        ios: {
+            presentationStyle: UIModalPresentationStyle.Popover
+        }
+    }
+
+    view.showModal("modal-no-page/modal-no-page", options);
 }
 
 export function onModalFrame(args: EventData) {
@@ -41,21 +63,54 @@ export function onModalPage(args: EventData) {
         false);
 }
 
+export function onModalLayout(args: EventData) {
+    const view = args.object as View;
+    view.showModal("modal-layout/modal-layout-root",
+        "context",
+        () => console.log("home-page modal layout closed"),
+        false);
+}
+
+export function onAndroidBackEvents(args: EventData) {
+    const view = args.object as View;
+    view.showModal(
+        "android-back-button/android-back-button-page",
+        null,
+        () => console.log("android-back-button modal page layout closed"),
+        true, true, true);
+}
+
 export function onModalTabView(args: EventData) {
+    const fullscreen = false;
+    const animated = false;
+    const stretched = true;
+
     const view = args.object as View;
     view.showModal("modal-tab/modal-tab-root",
         { frameless: true },
         () => console.log("home-page modal tabview closed"),
-        false);
+        fullscreen,
+        animated,
+        stretched);
 }
 
 export function onNavigate(args: EventData) {
     const view = args.object as View;
     const page = view.page as Page;
-    page.frame.navigate("second/second-page");
+    // In the layout root case for iOS, the page will be null
+    if (page) {
+        page.frame.navigate("second/second-page");
+    }
 }
 
-export function onRootViewChange() {
-    let rootView = application.getRootView();
-    rootView instanceof Frame ? application._resetRootView({moduleName: "tab-root"}) : application._resetRootView({moduleName: "app-root"});
+export function onFrameRootViewReset() {
+    application._resetRootView({ moduleName: "app-root" });
+}
+
+export function onTabRootViewReset() {
+    application._resetRootView({ moduleName: "tab-root" });
+}
+
+export function onLayoutRootViewReset() {
+    application._resetRootView({ moduleName: "layout-root" });
 }

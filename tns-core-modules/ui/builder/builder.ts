@@ -2,6 +2,7 @@
 import { LoadOptions } from ".";
 import { View, ViewBase, Template, KeyedTemplate } from "../core/view";
 import { ViewEntry } from "../frame";
+import * as traceModule from "../../trace";
 
 // Types.
 import { debug, ScopeError, SourceError, Source } from "../../utils/debug";
@@ -12,14 +13,13 @@ import { ComponentModule, setPropertyValue, getComponentModule } from "./compone
 import { platformNames, device } from "../../platform";
 import { resolveFileName } from "../../file-system/file-name-resolver";
 import { profile } from "../../profiling";
-import * as traceModule from "../../trace";
 
 const ios = platformNames.ios.toLowerCase();
 const android = platformNames.android.toLowerCase();
 
 const defaultNameSpaceMatcher = /tns\.xsd$/i;
 
-var trace: typeof traceModule;
+let trace: typeof traceModule;
 function ensureTrace() {
     if (!trace) {
         trace = require("trace");
@@ -59,7 +59,11 @@ export function load(pathOrOptions: string | LoadOptions, context?: any): View {
 
 export function loadPage(moduleNamePath: string, fileName: string, context?: any): View {
     const componentModule = loadInternal(fileName, context, moduleNamePath);
-    return componentModule && componentModule.component;
+    const componentView = componentModule && componentModule.component;
+    if (componentView && moduleNamePath) {
+        markAsModuleRoot(componentView, moduleNamePath);
+    }
+    return componentView;
 }
 
 const loadModule = profile("loadModule", (moduleNamePath: string, entry: ViewEntry): ModuleExports => {
@@ -81,17 +85,13 @@ const loadModule = profile("loadModule", (moduleNamePath: string, entry: ViewEnt
 const viewFromBuilder = profile("viewFromBuilder", (moduleNamePath: string, moduleExports: any): View => {
     // Possible XML file path.
     const fileName = resolveFileName(moduleNamePath, "xml");
-    if (fileName) {
-        // Or check if the file exists in the app modules and load the page from XML.
-        return loadPage(moduleNamePath, fileName, moduleExports);
-    }
 
     // Attempts to implement https://github.com/NativeScript/NativeScript/issues/1311
     // if (page && fileName === `${moduleNamePath}.port.xml` || fileName === `${moduleNamePath}.land.xml`){
     //     page["isBiOrientational"] = true;
-    // }
+    // };
 
-    return null;
+    return loadPage(moduleNamePath, fileName, moduleExports);
 })
 
 export const createViewFromEntry = profile("createViewFromEntry", (entry: ViewEntry): View => {
@@ -100,7 +100,7 @@ export const createViewFromEntry = profile("createViewFromEntry", (entry: ViewEn
     } else if (entry.moduleName) {
         // Current app full path.
         const currentAppPath = knownFolders.currentApp().path;
-        
+
         // Full path of the module = current app full path + module name.
         const moduleNamePath = path.join(currentAppPath, entry.moduleName);
         const moduleExports = loadModule(moduleNamePath, entry);
@@ -112,7 +112,7 @@ export const createViewFromEntry = profile("createViewFromEntry", (entry: ViewEn
             return viewFromBuilder(moduleNamePath, moduleExports);
         }
     }
-    
+
     throw new Error("Failed to load page XML file for module: " + entry.moduleName);
 });
 
@@ -132,7 +132,7 @@ interface ModuleExports {
 const moduleCreateView = profile("module.createView", (moduleNamePath: string, moduleExports: ModuleExports): View => {
     const view = moduleExports.createPage();
     const cssFileName = resolveFileName(moduleNamePath, "css");
-    
+
     // If there is no cssFile only appCss will be applied at loaded.
     if (cssFileName) {
         view.addCssFile(cssFileName);
@@ -140,11 +140,22 @@ const moduleCreateView = profile("module.createView", (moduleNamePath: string, m
     return view;
 });
 
+function markAsModuleRoot(componentView: View, moduleNamePath: string): void {
+    const lastIndexOfSeparator = moduleNamePath.lastIndexOf(path.separator);
+    const moduleName = moduleNamePath.substring(lastIndexOfSeparator + 1);
+    componentView._moduleName = moduleName;
+}
+
 function loadInternal(fileName: string, context?: any, moduleNamePath?: string): ComponentModule {
     let componentModule: ComponentModule;
 
-    // Check if the XML file exists.
-    if (File.exists(fileName)) {
+    const appPath = knownFolders.currentApp().path;
+    const filePathRelativeToApp = (moduleNamePath && moduleNamePath.startsWith(appPath) ? "./" + moduleNamePath.substr(appPath.length + 1) : moduleNamePath) + ".xml";
+
+    if (global.moduleExists(filePathRelativeToApp)) {
+        const text = global.loadModule(filePathRelativeToApp);
+        componentModule = parseInternal(text, context, fileName, moduleNamePath);
+    } else if (fileName && File.exists(fileName)) {
         const file = File.fromPath(fileName);
         const text = file.readTextSync((error) => { throw new Error("Error loading file " + fileName + " :" + error.message) });
         componentModule = parseInternal(text, context, fileName, moduleNamePath);
@@ -153,6 +164,10 @@ function loadInternal(fileName: string, context?: any, moduleNamePath?: string):
     if (componentModule && componentModule.component) {
         // Save exports to root component (will be used for templates).
         (<any>componentModule.component).exports = context;
+    }
+
+    if (!componentModule) {
+        throw new Error("Failed to load component from module: " + filePathRelativeToApp + " or file: " + fileName);
     }
 
     return componentModule;
@@ -168,7 +183,8 @@ function loadCustomComponent(componentPath: string, componentName?: string, attr
 
     let result: ComponentModule;
     componentPath = componentPath.replace("~/", "");
-    const moduleName = componentPath + "/" + componentName;
+    const moduleName = `${componentPath}/${componentName}`;
+    const xmlModuleName = `${moduleName}.xml`;
 
     let fullComponentPathFilePathWithoutExt = componentPath;
 
@@ -177,8 +193,7 @@ function loadCustomComponent(componentPath: string, componentName?: string, attr
     }
 
     const xmlFilePath = resolveFileName(fullComponentPathFilePathWithoutExt, "xml");
-
-    if (xmlFilePath) {
+    if (xmlFilePath || global.moduleExists(xmlModuleName)) {
         // Custom components with XML
 
         let subExports = context;
@@ -201,7 +216,9 @@ function loadCustomComponent(componentPath: string, componentName?: string, attr
 
         subExports["_parentPage"] = parentPage;
 
-        result = loadInternal(xmlFilePath, subExports);
+        result = xmlFilePath ?
+            loadInternal(xmlFilePath, subExports) :
+            loadInternal(xmlFilePath, subExports, moduleName);
 
         // Attributes will be transfered to the custom component
         if (isDefined(result) && isDefined(result.component) && isDefined(attributes)) {
@@ -217,7 +234,7 @@ function loadCustomComponent(componentPath: string, componentName?: string, attr
     // webpack modules require paths to be relative to /app folder.
     let cssModulePath = fullComponentPathFilePathWithoutExt + ".css";
     if (cssModulePath.startsWith("/")) {
-        var app = knownFolders.currentApp().path + "/";
+        const app = knownFolders.currentApp().path + "/";
         if (cssModulePath.startsWith(app)) {
             cssModulePath = "./" + cssModulePath.substr(app.length);
         }
@@ -227,7 +244,7 @@ function loadCustomComponent(componentPath: string, componentName?: string, attr
     if (global.moduleExists(cssModulePath)) {
         (<any>parentPage).addCssFile(cssModulePath);
     } else {
-        var cssFilePath = resolveFileName(fullComponentPathFilePathWithoutExt, "css");
+        const cssFilePath = resolveFileName(fullComponentPathFilePathWithoutExt, "css");
         // Add component CSS file if exists.
         if (cssFilePath) {
             if (parentPage && typeof (<any>parentPage).addCssFile === "function") {
@@ -259,11 +276,11 @@ function getExports(instance: ViewBase): any {
 }
 
 function parseInternal(value: string, context: any, uri?: string, moduleNamePath?: string): ComponentModule {
-    var start: xml2ui.XmlStringParser;
-    var ui: xml2ui.ComponentParser;
+    let start: xml2ui.XmlStringParser;
+    let ui: xml2ui.ComponentParser;
 
-    var errorFormat = (debug && uri) ? xml2ui.SourceErrorFormat(uri) : xml2ui.PositionErrorFormat;
-    var componentSourceTracker = (debug && uri) ? xml2ui.ComponentSourceTracker(uri) : () => {
+    const errorFormat = (debug && uri) ? xml2ui.SourceErrorFormat(uri) : xml2ui.PositionErrorFormat;
+    const componentSourceTracker = (debug && uri) ? xml2ui.ComponentSourceTracker(uri) : () => {
         // no-op
     };
 
@@ -309,7 +326,7 @@ namespace xml2ui {
         }
 
         public parse(value: string) {
-            var xmlParser = new xml.XmlParser((args: xml.ParserEvent) => {
+            const xmlParser = new xml.XmlParser((args: xml.ParserEvent) => {
                 try {
                     this.next(args);
                 } catch (e) {
@@ -335,7 +352,7 @@ namespace xml2ui {
 
     export function SourceErrorFormat(uri): ErrorFormatter {
         return (e: Error, p: xml.Position) => {
-            var source = p ? new Source(uri, p.line, p.column) : new Source(uri, -1, -1);
+            const source = p ? new Source(uri, p.line, p.column) : new Source(uri, -1, -1);
             e = new SourceError(e, source, "Building UI from XML.");
             return e;
         }
@@ -348,7 +365,7 @@ namespace xml2ui {
     export function ComponentSourceTracker(uri): SourceTracker {
         return (component: any, p: xml.Position) => {
             if (!Source.get(component)) {
-                var source = p ? new Source(uri, p.line, p.column) : new Source(uri, -1, -1);
+                const source = p ? new Source(uri, p.line, p.column) : new Source(uri, -1, -1);
                 Source.set(component, source);
             }
         }
@@ -517,12 +534,12 @@ namespace xml2ui {
         }
 
         public buildTemplate(): Template {
-            var context = this._context;
-            var errorFormat = this._templateProperty.errorFormat;
-            var sourceTracker = this._templateProperty.sourceTracker;
-            var template: Template = profile("Template()", () => {
-                var start: xml2ui.XmlArgsReplay;
-                var ui: xml2ui.ComponentParser;
+            const context = this._context;
+            const errorFormat = this._templateProperty.errorFormat;
+            const sourceTracker = this._templateProperty.sourceTracker;
+            const template: Template = profile("Template()", () => {
+                let start: xml2ui.XmlArgsReplay;
+                let ui: xml2ui.ComponentParser;
 
                 (start = new xml2ui.XmlArgsReplay(this._recordedXmlStream, errorFormat))
                     // No platform filter, it has been filtered already
@@ -532,6 +549,7 @@ namespace xml2ui {
 
                 return ui.rootComponentModule.component;
             });
+
             return template;
         }
     }
@@ -611,7 +629,7 @@ namespace xml2ui {
             } else {
                 // Default components
                 let namespace = args.namespace;
-                if (defaultNameSpaceMatcher.test(namespace || '')) {
+                if (defaultNameSpaceMatcher.test(namespace || "")) {
                     //Ignore the default ...tns.xsd namespace URL
                     namespace = undefined;
                 }
@@ -622,14 +640,14 @@ namespace xml2ui {
         public parse(args: xml.ParserEvent): XmlStateConsumer {
 
             // Get the current parent.
-            var parent = this.parents[this.parents.length - 1];
-            var complexProperty = this.complexProperties[this.complexProperties.length - 1];
+            const parent = this.parents[this.parents.length - 1];
+            const complexProperty = this.complexProperties[this.complexProperties.length - 1];
 
             // Create component instance from every element declaration.
             if (args.eventType === xml.ParserEventType.StartElement) {
                 if (ComponentParser.isComplexProperty(args.elementName)) {
 
-                    var name = ComponentParser.getComplexPropertyName(args.elementName);
+                    const name = ComponentParser.getComplexPropertyName(args.elementName);
 
                     const complexProperty: ComponentParser.ComplexProperty = {
                         parent: parent,
@@ -666,7 +684,7 @@ namespace xml2ui {
 
                 } else {
 
-                    var componentModule = this.buildComponent(args);
+                    const componentModule = this.buildComponent(args);
 
                     if (componentModule) {
                         this.sourceTracker(componentModule.component, args.position);
@@ -723,10 +741,10 @@ namespace xml2ui {
         }
 
         public static getComplexPropertyName(fullName: string): string {
-            var name: string;
+            let name: string;
 
             if (isString(fullName)) {
-                var names = fullName.split(".");
+                const names = fullName.split(".");
                 name = names[names.length - 1];
             }
 
@@ -743,7 +761,7 @@ namespace xml2ui {
 
         private static addToComplexProperty(parent: ComponentModule, complexProperty: ComponentParser.ComplexProperty, elementModule: ComponentModule) {
             // If property name is known collection we populate array with elements.
-            var parentComponent = <any>parent.component;
+            const parentComponent = <any>parent.component;
             if (ComponentParser.isKnownCollection(complexProperty.name, parent.exports)) {
                 complexProperty.items.push(elementModule.component);
             } else if (parentComponent._addChildFromBuilder) {

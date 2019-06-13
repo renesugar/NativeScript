@@ -72,9 +72,10 @@ let _connectionTypeChangedCallback: (newConnectionType: number) => void;
 export function startMonitoring(connectionTypeChangedCallback: (newConnectionType: number) => void): void {
     if (!_monitorReachabilityRef) {
         _monitorReachabilityRef = _createReachability();
-        _connectionTypeChangedCallback = connectionTypeChangedCallback;
+        _connectionTypeChangedCallback = <any>zonedCallback(connectionTypeChangedCallback);
         SCNetworkReachabilitySetCallback(_monitorReachabilityRef, _reachabilityCallbackFunctionRef, null);
         SCNetworkReachabilityScheduleWithRunLoop(_monitorReachabilityRef, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+        _connectionTypeChangedCallback(_getConnectionType());
     }
 }
 

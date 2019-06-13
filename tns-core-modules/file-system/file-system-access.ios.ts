@@ -6,7 +6,7 @@ import { ios } from "../utils/utils";
 export class FileSystemAccess {
 
     public getLastModified(path: string): Date {
-        const fileManager = ios.getter(NSFileManager, NSFileManager.defaultManager);
+        const fileManager = NSFileManager.defaultManager;
         const attributes = fileManager.attributesOfItemAtPathError(path);
 
         if (attributes) {
@@ -16,9 +16,19 @@ export class FileSystemAccess {
         }
     }
 
+    public getFileSize(path: string): number {
+        const fileManager = NSFileManager.defaultManager;
+        const attributes = fileManager.attributesOfItemAtPathError(path);
+        if (attributes) {
+            return attributes.objectForKey("NSFileSize");
+        } else {
+            return 0;
+        }
+    }
+
     public getParent(path: string, onError?: (error: any) => any): { path: string; name: string } {
         try {
-            const fileManager = ios.getter(NSFileManager, NSFileManager.defaultManager);
+            const fileManager = NSFileManager.defaultManager;
             const nsString = NSString.stringWithString(path);
 
             const parentPath = nsString.stringByDeletingLastPathComponent;
@@ -39,7 +49,7 @@ export class FileSystemAccess {
 
     public getFile(path: string, onError?: (error: any) => any): { path: string; name: string; extension: string } {
         try {
-            const fileManager = ios.getter(NSFileManager, NSFileManager.defaultManager);
+            const fileManager = NSFileManager.defaultManager;
             const exists = fileManager.fileExistsAtPath(path);
 
             if (!exists) {
@@ -71,7 +81,7 @@ export class FileSystemAccess {
 
     public getFolder(path: string, onError?: (error: any) => any): { path: string; name: string } {
         try {
-            const fileManager = ios.getter(NSFileManager, NSFileManager.defaultManager);
+            const fileManager = NSFileManager.defaultManager;
             const exists = this.folderExists(path);
 
             if (!exists) {
@@ -104,7 +114,7 @@ export class FileSystemAccess {
 
     public getExistingFolder(path: string, onError?: (error: any) => any): { path: string; name: string } {
         try {
-            const fileManager = ios.getter(NSFileManager, NSFileManager.defaultManager);
+            const fileManager = NSFileManager.defaultManager;
             const exists = this.folderExists(path);
 
             if (exists) {
@@ -169,7 +179,7 @@ export class FileSystemAccess {
     }
 
     private exists(path: string): { exists: boolean, isDirectory: boolean } {
-        const fileManager = ios.getter(NSFileManager, NSFileManager.defaultManager);
+        const fileManager = NSFileManager.defaultManager;
         const isDirectory = new interop.Reference(interop.types.bool, false);
         const exists = fileManager.fileExistsAtPathIsDirectory(path, isDirectory);
 
@@ -189,7 +199,7 @@ export class FileSystemAccess {
     }
 
     public emptyFolder(path: string, onError?: (error: any) => any) {
-        const fileManager = ios.getter(NSFileManager, NSFileManager.defaultManager);
+        const fileManager = NSFileManager.defaultManager;
         const entities = this.getEntities(path, onError);
 
         if (!entities) {
@@ -211,7 +221,7 @@ export class FileSystemAccess {
     }
 
     public rename(path: string, newPath: string, onError?: (error: any) => any) {
-        const fileManager = ios.getter(NSFileManager, NSFileManager.defaultManager);
+        const fileManager = NSFileManager.defaultManager;
 
         try {
             fileManager.moveItemAtPathToPathError(path, newPath);
@@ -223,7 +233,7 @@ export class FileSystemAccess {
     }
 
     public getLogicalRootPath(): string {
-        const mainBundlePath = ios.getter(NSBundle, NSBundle.mainBundle).bundlePath;
+        const mainBundlePath = NSBundle.mainBundle.bundlePath;
         const resolvedPath = NSString.stringWithString(mainBundlePath).stringByResolvingSymlinksInPath;
         return resolvedPath;
     }
@@ -289,7 +299,7 @@ export class FileSystemAccess {
     }
 
     private getKnownPath(folderType: number): string {
-        const fileManager = ios.getter(NSFileManager, NSFileManager.defaultManager);
+        const fileManager = NSFileManager.defaultManager;
         const paths = fileManager.URLsForDirectoryInDomains(folderType, NSSearchPathDomainMask.UserDomainMask);
 
         const url = paths.objectAtIndex(0);
@@ -317,7 +327,7 @@ export class FileSystemAccess {
     }
 
     private deleteEntity(path: string, onError?: (error: any) => any) {
-        const fileManager = ios.getter(NSFileManager, NSFileManager.defaultManager);
+        const fileManager = NSFileManager.defaultManager;
         try {
             fileManager.removeItemAtPathError(path);
         } catch (ex) {
@@ -329,7 +339,7 @@ export class FileSystemAccess {
 
     private enumEntities(path: string, callback: (entity: { path: string; name: string; extension: string }) => boolean, onError?: (error) => any) {
         try {
-            const fileManager = ios.getter(NSFileManager, NSFileManager.defaultManager);
+            const fileManager = NSFileManager.defaultManager;
             let files: NSArray<string>;
             try {
                 files = fileManager.contentsOfDirectoryAtPathError(path);
@@ -347,7 +357,7 @@ export class FileSystemAccess {
                 const info = {
                     path: this.concatPath(path, file),
                     name: file,
-                    extension: ''
+                    extension: ""
                 };
 
                 if (!this.folderExists(this.joinPath(path, file))) {

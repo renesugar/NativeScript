@@ -94,22 +94,22 @@ export module TouchAction {
     /**
      * Down action.
      */
-    export var down: string;
+    export const down: string;
 
     /**
      * Up action.
      */
-    export var up: string;
+    export const up: string;
     
     /**
      * Move action.
      */
-    export var move: string;
+    export const move: string;
     
     /**
      * Cancel action.
      */
-    export var cancel: string;
+    export const cancel: string;
 }
 
 /**
@@ -141,7 +141,7 @@ export interface TouchGestureEventData extends GestureEventData {
     /**
      * Gets action of the touch. Possible values: 'up', 'move', 'down', 'cancel'
      */
-    action: 'up' | 'move' | 'down' | 'cancel';
+    action: "up" | "move" | "down" | "cancel";
 
     /**
      * Gets the X coordinate of this event inside the view that triggered the event.

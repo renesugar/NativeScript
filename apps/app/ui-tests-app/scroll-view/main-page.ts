@@ -14,5 +14,8 @@ export function loadExamples() {
     examples.set("scrolling-and-sizing", "scroll-view/scrolling-and-sizing");
     examples.set("safe-area-root-element", "scroll-view/safe-area-root-element");
     examples.set("safe-area-sub-element", "scroll-view/safe-area-sub-element");
+    examples.set("safe-area-images", "scroll-view/safe-area-images");
+    examples.set("safe-area-images-overflow", "scroll-view/safe-area-images-overflow");
+    examples.set("layout-outside-scroll", "scroll-view/layout-outside-scroll");
     return examples;
 }

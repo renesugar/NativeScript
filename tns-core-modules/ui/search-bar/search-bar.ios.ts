@@ -1,10 +1,13 @@
 ﻿import { Font } from "../styling/font";
 import {
     SearchBarBase, Color, colorProperty, backgroundColorProperty, backgroundInternalProperty, fontInternalProperty,
-    textProperty, hintProperty, textFieldHintColorProperty, textFieldBackgroundColorProperty
+    textProperty, hintProperty, textFieldHintColorProperty, textFieldBackgroundColorProperty, isEnabledProperty
 } from "./search-bar-common";
+import { ios as iosUtils } from "../../utils/utils";
 
 export * from "./search-bar-common";
+
+const majorVersion = iosUtils.MajorVersion;
 
 class UISearchBarDelegateImpl extends NSObject implements UISearchBarDelegate {
     public static ObjCProtocols = [UISearchBarDelegate];
@@ -52,26 +55,44 @@ class UISearchBarDelegateImpl extends NSObject implements UISearchBarDelegate {
     }
 }
 
+class UISearchBarImpl extends UISearchBar {
+    sizeThatFits(size: CGSize): CGSize {
+        // iOS11 SDK does not support passing sizeThatFits(...) non-finite width value;
+        // iOS layout system will take care to size the element properly when passed 0
+        if (majorVersion >= 11 && size.width === Number.POSITIVE_INFINITY) {
+            size.width = 0;
+        }
+
+        return super.sizeThatFits(size);
+    }
+}
+
 export class SearchBar extends SearchBarBase {
-    private _ios: UISearchBar;
+    nativeViewProtected: UISearchBar;
     private _delegate;
     private __textField: UITextField;
-    private __placeholderLabel: UILabel;
 
-    constructor() {
-        super();
+    createNativeView() {
+        return UISearchBarImpl.new();
+    }
 
-        this.nativeViewProtected = this._ios = UISearchBar.new();
+    initNativeView() {
+        super.initNativeView();
         this._delegate = UISearchBarDelegateImpl.initWithOwner(new WeakRef(this));
+    }
+
+    disposeNativeView() {
+        this._delegate = null;
+        super.disposeNativeView();
     }
 
     public onLoaded() {
         super.onLoaded();
-        this._ios.delegate = this._delegate;
+        this.ios.delegate = this._delegate;
     }
 
     public onUnloaded() {
-        this._ios.delegate = null;
+        this.ios.delegate = null;
         super.onUnloaded();
     }
 
@@ -80,7 +101,7 @@ export class SearchBar extends SearchBarBase {
     }
 
     get ios(): UISearchBar {
-        return this._ios;
+        return this.nativeViewProtected;
     }
 
     get _textField(): UITextField {
@@ -91,22 +112,24 @@ export class SearchBar extends SearchBarBase {
         return this.__textField;
     }
 
-    get _placeholderLabel(): UILabel {
-        if (!this.__placeholderLabel) {
-            if (this._textField) {
-                this.__placeholderLabel = this._textField.valueForKey("placeholderLabel");
-            }
+    [isEnabledProperty.setNative](value: boolean) {
+        const nativeView = this.nativeViewProtected;
+        if (nativeView instanceof UIControl) {
+            nativeView.enabled = value;
         }
 
-        return this.__placeholderLabel;
+        const textField = this._textField;
+        if (textField) {
+            textField.enabled = value;
+        }
     }
 
     [backgroundColorProperty.getDefault](): UIColor {
-        return this._ios.barTintColor;
+        return this.ios.barTintColor;
     }
     [backgroundColorProperty.setNative](value: UIColor | Color) {
         let color: UIColor = value instanceof Color ? value.ios : value;
-        this._ios.barTintColor = color;
+        this.ios.barTintColor = color;
     }
 
     [colorProperty.getDefault](): UIColor {
@@ -144,19 +167,18 @@ export class SearchBar extends SearchBarBase {
     }
 
     [textProperty.getDefault](): string {
-        return '';
+        return "";
     }
     [textProperty.setNative](value: string) {
-        const text = (value === null || value === undefined) ? '' : value.toString();
-        this._ios.text = text;
+        const text = (value === null || value === undefined) ? "" : value.toString();
+        this.ios.text = text;
     }
 
     [hintProperty.getDefault](): string {
-        return '';
+        return "";
     }
     [hintProperty.setNative](value: string) {
-        const text = (value === null || value === undefined) ? '' : value.toString();
-        this._ios.placeholder = text;
+        this._updateAttributedPlaceholder();
     }
 
     [textFieldBackgroundColorProperty.getDefault](): UIColor {
@@ -176,18 +198,30 @@ export class SearchBar extends SearchBarBase {
     }
 
     [textFieldHintColorProperty.getDefault](): UIColor {
-        const placeholderLabel = this._placeholderLabel;
-        if (placeholderLabel) {
-            return placeholderLabel.textColor;
-        }
-
         return null;
     }
     [textFieldHintColorProperty.setNative](value: Color | UIColor) {
-        const color = value instanceof Color ? value.ios : value
-        const placeholderLabel = this._placeholderLabel;
-        if (placeholderLabel) {
-            placeholderLabel.textColor = color;
+        this._updateAttributedPlaceholder();
+    }
+
+    // Very similar to text-field.ios.ts implementation. Maybe unify APIs and base classes?
+    _updateAttributedPlaceholder(): void {
+        let stringValue = this.hint;
+        if (stringValue === null || stringValue === void 0) {
+            stringValue = "";
+        } else {
+            stringValue = stringValue + "";
         }
+        if (stringValue === "") {
+            // we do not use empty string since initWithStringAttributes does not return proper value and
+            // nativeView.attributedPlaceholder will be null
+            stringValue = " ";
+        }
+        const attributes: any = {};
+        if (this.textFieldHintColor) {
+            attributes[NSForegroundColorAttributeName] = this.textFieldHintColor.ios;
+        }
+        const attributedPlaceholder = NSAttributedString.alloc().initWithStringAttributes(stringValue, attributes);
+        this._textField.attributedPlaceholder = attributedPlaceholder;
     }
 }

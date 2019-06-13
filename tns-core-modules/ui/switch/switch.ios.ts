@@ -1,5 +1,5 @@
 ﻿import {
-    SwitchBase, layout, Color, colorProperty, backgroundColorProperty, backgroundInternalProperty, checkedProperty
+    SwitchBase, layout, Color, colorProperty, backgroundColorProperty, backgroundInternalProperty, checkedProperty, offBackgroundColorProperty
 } from "./switch-common";
 
 export * from "./switch-common";
@@ -22,7 +22,7 @@ class SwitchChangeHandlerImpl extends NSObject {
     }
 
     public static ObjCExposedMethods = {
-        'valueChanged': { returns: interop.types.void, params: [UISwitch] }
+        "valueChanged": { returns: interop.types.void, params: [UISwitch] }
     };
 }
 
@@ -33,12 +33,24 @@ export class Switch extends SwitchBase {
 
     constructor() {
         super();
-        const nativeView = UISwitch.new();
-        this._handler = SwitchChangeHandlerImpl.initWithOwner(new WeakRef(this));
-        nativeView.addTargetActionForControlEvents(this._handler, "valueChanged", UIControlEvents.ValueChanged);
-        this.nativeViewProtected = nativeView;
         this.width = 51;
         this.height = 31;
+    }
+
+    public createNativeView() {
+        return UISwitch.new();
+    }
+
+    public initNativeView(): void {
+        super.initNativeView();
+        const nativeView = this.nativeViewProtected;
+        this._handler = SwitchChangeHandlerImpl.initWithOwner(new WeakRef(this));
+        nativeView.addTargetActionForControlEvents(this._handler, "valueChanged", UIControlEvents.ValueChanged);
+    }
+
+    public disposeNativeView() {
+        this._handler = null;
+        super.disposeNativeView();
     }
 
     get ios(): UISwitch {
@@ -82,5 +94,16 @@ export class Switch extends SwitchBase {
     }
     [backgroundInternalProperty.setNative](value: any) {
         //
+    }
+
+    [offBackgroundColorProperty.getDefault](): UIColor {
+        return this.nativeViewProtected.backgroundColor;
+    }
+    [offBackgroundColorProperty.setNative](value: Color | UIColor) {
+        const nativeValue = value instanceof Color ? value.ios : value;
+
+        this.nativeViewProtected.tintColor = nativeValue;
+        this.nativeViewProtected.backgroundColor = nativeValue;
+        this.nativeViewProtected.layer.cornerRadius = this.nativeViewProtected.frame.size.height / 2;
     }
 }

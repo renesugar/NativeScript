@@ -1,14 +1,17 @@
 ﻿// Definitions.
-import { iOSFrame as iOSFrameDefinition, BackstackEntry, NavigationTransition, NavigationEntry } from ".";
+import {
+    iOSFrame as iOSFrameDefinition, BackstackEntry, NavigationTransition
+} from ".";
 import { Page } from "../page";
 import { profile } from "../../profiling";
 
 //Types.
-import { FrameBase, View, topmost, layout, traceEnabled, traceWrite, traceCategories, isCategorySet } from "./frame-common";
+import {
+    FrameBase, View, isCategorySet, layout,
+    NavigationType, traceCategories, traceEnabled, traceWrite
+} from "./frame-common";
 import { _createIOSAnimatedTransitioning } from "./fragment.transitions";
-// HACK: Webpack. Use a fully-qualified import to allow resolve.extensions(.ios.js) to
-// kick in. `../utils` doesn't seem to trigger the webpack extensions mechanism.
-import * as uiUtils from "../../ui/utils";
+
 import * as utils from "../../utils/utils";
 
 export * from "./frame-common";
@@ -16,36 +19,47 @@ export * from "./frame-common";
 const majorVersion = utils.ios.MajorVersion;
 
 const ENTRY = "_entry";
+const DELEGATE = "_delegate";
 const NAV_DEPTH = "_navDepth";
 const TRANSITION = "_transition";
-const DELEGATE = "_delegate";
+const NON_ANIMATED_TRANSITION = "non-animated";
+const HMR_REPLACE_TRANSITION = "fade";
 
 let navDepth = -1;
 
 export class Frame extends FrameBase {
     public viewController: UINavigationControllerImpl;
     public _animatedDelegate = <UINavigationControllerDelegate>UINavigationControllerAnimatedDelegate.new();
-
-    private _ios: iOSFrame;
+    public _ios: iOSFrame;
 
     constructor() {
         super();
         this._ios = new iOSFrame(this);
         this.viewController = this._ios.controller;
-        this.nativeViewProtected = this._ios.controller.view;
+    }
+
+    createNativeView() {
+        return this.viewController.view;
+    }
+
+    public disposeNativeView() {
+        this._removeFromFrameStack();
+        this.viewController = null;
+        this._ios.controller = null;
+        super.disposeNativeView();
     }
 
     public get ios(): iOSFrame {
         return this._ios;
     }
 
-    public setCurrent(entry: BackstackEntry, isBack: boolean): void {
+    public setCurrent(entry: BackstackEntry, navigationType: NavigationType): void {
         const current = this._currentEntry;
         const currentEntryChanged = current !== entry;
         if (currentEntryChanged) {
-            this._updateBackstack(entry, isBack);
+            this._updateBackstack(entry, navigationType);
 
-            super.setCurrent(entry, isBack);
+            super.setCurrent(entry, navigationType);
         }
     }
 
@@ -62,19 +76,26 @@ export class Frame extends FrameBase {
         if (clearHistory) {
             navDepth = -1;
         }
-        navDepth++;
+
+        const isReplace = this._executingContext && this._executingContext.navigationType === NavigationType.replace;
+        if (!isReplace) {
+            navDepth++;
+        }
 
         let navigationTransition: NavigationTransition;
         let animated = this.currentPage ? this._getIsAnimatedNavigation(backstackEntry.entry) : false;
-        if (animated) {
+        if (isReplace) {
+            animated = true;
+            navigationTransition = { name: HMR_REPLACE_TRANSITION, duration: 100 }
+            viewController[TRANSITION] = navigationTransition;
+        } else if (animated) {
             navigationTransition = this._getNavigationTransition(backstackEntry.entry);
             if (navigationTransition) {
                 viewController[TRANSITION] = navigationTransition;
             }
-        }
-        else {
+        } else {
             //https://github.com/NativeScript/NativeScript/issues/1787
-            viewController[TRANSITION] = { name: "non-animated" };
+            viewController[TRANSITION] = { name: NON_ANIMATED_TRANSITION };
         }
 
         let nativeTransition = _getNativeTransition(navigationTransition, true);
@@ -129,7 +150,8 @@ export class Frame extends FrameBase {
         }
 
         // We should hide the current entry from the back stack.
-        if (!Frame._isEntryBackstackVisible(this._currentEntry)) {
+        // This is the case for HMR when NavigationType.replace.
+        if (!Frame._isEntryBackstackVisible(this._currentEntry) || isReplace) {
             let newControllers = NSMutableArray.alloc<UIViewController>().initWithArray(this._ios.controller.viewControllers);
             if (newControllers.count === 0) {
                 throw new Error("Wrong controllers count.");
@@ -202,7 +224,7 @@ export class Frame extends FrameBase {
     }
 
     public _getNavBarVisible(page: Page): boolean {
-        switch (this._ios.navBarVisibility) {
+        switch (this.actionBarVisibility) {
             case "always":
                 return true;
 
@@ -210,17 +232,26 @@ export class Frame extends FrameBase {
                 return false;
 
             case "auto":
-                let newValue: boolean;
+                switch (this._ios.navBarVisibility) {
+                    case "always":
+                        return true;
 
-                if (page && page.actionBarHidden !== undefined) {
-                    newValue = !page.actionBarHidden;
-                }
-                else {
-                    newValue = this.ios.controller.viewControllers.count > 1 || (page && page.actionBar && !page.actionBar._isEmpty());
-                }
+                    case "never":
+                        return false;
 
-                newValue = !!newValue; // Make sure it is boolean
-                return newValue;
+                    case "auto":
+                        let newValue: boolean;
+
+                        if (page && page.actionBarHidden !== undefined) {
+                            newValue = !page.actionBarHidden;
+                        }
+                        else {
+                            newValue = this.ios.controller.viewControllers.count > 1 || (page && page.actionBar && !page.actionBar._isEmpty());
+                        }
+
+                        newValue = !!newValue; // Make sure it is boolean
+                        return newValue;
+                }
         }
     }
 
@@ -375,6 +406,8 @@ class UINavigationControllerImpl extends UINavigationController {
         const owner = this._owner.get();
         if (owner && owner.isLoaded && !owner.parent && !this.presentedViewController) {
             owner.callUnloaded();
+            owner._tearDownUI(true);
+
         }
     }
 
@@ -451,7 +484,7 @@ class UINavigationControllerImpl extends UINavigationController {
             traceWrite(`UINavigationControllerImpl.popViewControllerAnimated(${animated}); transition: ${JSON.stringify(navigationTransition)}`, traceCategories.NativeLifecycle);
         }
 
-        if (navigationTransition && navigationTransition.name === "non-animated") {
+        if (navigationTransition && navigationTransition.name === NON_ANIMATED_TRANSITION) {
             //https://github.com/NativeScript/NativeScript/issues/1787
             return super.popViewControllerAnimated(false);
         }
@@ -475,7 +508,7 @@ class UINavigationControllerImpl extends UINavigationController {
             traceWrite(`UINavigationControllerImpl.popToViewControllerAnimated(${viewController}, ${animated}); transition: ${JSON.stringify(navigationTransition)}`, traceCategories.NativeLifecycle);
         }
 
-        if (navigationTransition && navigationTransition.name === "non-animated") {
+        if (navigationTransition && navigationTransition.name === NON_ANIMATED_TRANSITION) {
             //https://github.com/NativeScript/NativeScript/issues/1787
             return super.popToViewControllerAnimated(viewController, false);
         }
@@ -569,19 +602,20 @@ class iOSFrame implements iOSFrameDefinition {
     private _controller: UINavigationControllerImpl;
     private _showNavigationBar: boolean;
     private _navBarVisibility: "auto" | "never" | "always" = "auto";
-    private _frame: Frame;
 
     // TabView uses this flag to disable animation while showing/hiding the navigation bar because of the "< More" bar.
     // See the TabView._handleTwoNavigationBars method for more details.
     public _disableNavBarAnimation: boolean;
 
     constructor(frame: Frame) {
-        this._frame = frame;
         this._controller = UINavigationControllerImpl.initWithOwner(new WeakRef(frame));
     }
 
     public get controller() {
         return this._controller;
+    }
+    public set controller(value: UINavigationControllerImpl) {
+        this._controller = value;
     }
 
     public get showNavigationBar(): boolean {
@@ -589,14 +623,7 @@ class iOSFrame implements iOSFrameDefinition {
     }
     public set showNavigationBar(value: boolean) {
         this._showNavigationBar = value;
-
-        const viewController = this._controller.viewControllers;
-        const length = viewController ? viewController.count : 0;
-        const animated = length > 0 && !this._disableNavBarAnimation;
-
-        this._controller.setNavigationBarHiddenAnimated(!value, true);
-        // this._controller.view.setNeedsLayout();
-        // this._controller.view.layoutIfNeeded();
+        this._controller.setNavigationBarHiddenAnimated(!value, !this._disableNavBarAnimation);
     }
 
     public get navBarVisibility(): "auto" | "never" | "always" {

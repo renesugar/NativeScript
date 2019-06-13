@@ -5,7 +5,7 @@ export * from "../layout-base";
 
 function validateArgs(element: View): View {
     if (!element) {
-        throw new Error("element cannot be null or undefinied.");
+        throw new Error("element cannot be null or undefined.");
     }
     return element;
 }
@@ -178,12 +178,24 @@ export class GridLayoutBase extends LayoutBase implements GridLayoutDefinition {
         this.invalidate();
     }
 
+    public addChildAtCell(view: View, row: number, column: number, rowSpan?: number, columnSpan?: number): void {
+        this.addChild(view);
+        GridLayoutBase.setRow(view, row);
+        GridLayoutBase.setColumn(view, column);
+        if (rowSpan) {
+            GridLayoutBase.setRowSpan(view, rowSpan);
+        }
+        if (columnSpan) {
+            GridLayoutBase.setColumnSpan(view, columnSpan);
+        }
+    }
+    
     public removeRow(itemSpec: ItemSpec): void {
         if (!itemSpec) {
             throw new Error("Value is null.");
         }
 
-        var index = this._rows.indexOf(itemSpec);
+        const index = this._rows.indexOf(itemSpec);
         if (itemSpec.owner !== this || index < 0) {
             throw new Error("Row is not child of this GridLayout");
         }
@@ -199,7 +211,7 @@ export class GridLayoutBase extends LayoutBase implements GridLayoutDefinition {
             throw new Error("Value is null.");
         }
 
-        var index = this._cols.indexOf(itemSpec);
+        const index = this._cols.indexOf(itemSpec);
         if (itemSpec.owner !== this || index < 0) {
             throw new Error("Column is not child of this GridLayout");
         }
@@ -211,7 +223,7 @@ export class GridLayoutBase extends LayoutBase implements GridLayoutDefinition {
     }
 
     public removeColumns() {
-        for (var i = this._cols.length - 1; i >= 0; i--) {
+        for (let i = this._cols.length - 1; i >= 0; i--) {
             const colSpec = this._cols[i];
             this._onColumnRemoved(colSpec, i);
             colSpec.index = -1;
@@ -221,7 +233,7 @@ export class GridLayoutBase extends LayoutBase implements GridLayoutDefinition {
     }
 
     public removeRows() {
-        for (var i = this._rows.length - 1; i >= 0; i--) {
+        for (let i = this._rows.length - 1; i >= 0; i--) {
             const rowSpec = this._rows[i];
             this._onRowRemoved(rowSpec, i);
             rowSpec.index = -1;
@@ -279,7 +291,7 @@ export class GridLayoutBase extends LayoutBase implements GridLayoutDefinition {
     }
 
     protected invalidate(): void {
-        // handled natively in android and overriden in ios.
+        // handled natively in android and overridden in ios.
     }
 
     set rows(value: string) {

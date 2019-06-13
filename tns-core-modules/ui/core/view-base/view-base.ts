@@ -1,14 +1,12 @@
 // Definitions.
 import { ViewBase as ViewBaseDefinition } from ".";
 import { Page } from "../../page";
-import { SelectorCore } from "../../styling/css-selector";
 import { Order, FlexGrow, FlexShrink, FlexWrapBefore, AlignSelf } from "../../layouts/flexbox-layout";
-import { KeyframeAnimation } from "../../animation/keyframe-animation";
 
 // Types.
-import { Property, CssProperty, CssAnimationProperty, InheritedProperty, Style, clearInheritedProperties, propagateInheritableProperties, propagateInheritableCssProperties, resetCSSProperties, initNativeView, resetNativeView } from "../properties";
+import { Property, CssProperty, CssAnimationProperty, InheritedProperty, Style, clearInheritedProperties, propagateInheritableProperties, propagateInheritableCssProperties, initNativeView } from "../properties";
 import { Source } from "../../../utils/debug";
-import { Binding, BindingOptions, Observable, WrappedValue, PropertyChangeData, traceEnabled, traceWrite, traceCategories, traceNotifyEvent } from "../bindable";
+import { Binding, BindingOptions, Observable, WrappedValue, PropertyChangeData, traceEnabled, traceWrite, traceCategories } from "../bindable";
 import { isIOS, isAndroid } from "../../../platform";
 import { layout } from "../../../utils/utils";
 import { Length, paddingTopProperty, paddingRightProperty, paddingBottomProperty, paddingLeftProperty } from "../../styling/style-properties";
@@ -141,8 +139,8 @@ let viewIdCounter = 1;
 // }
 
 enum Flags {
-    superOnLoadedCalled = 'Loaded',
-    superOnUnloadedCalled = 'Unloaded',
+    superOnLoadedCalled = "Loaded",
+    superOnUnloadedCalled = "Unloaded",
 }
 
 enum SuspendType {
@@ -245,6 +243,8 @@ export abstract class ViewBase extends Observable implements ViewBaseDefinition 
     public _defaultPaddingBottom: number;
     public _defaultPaddingLeft: number;
     public _isPaddingRelative: boolean;
+
+    public _moduleName: string;
 
     constructor() {
         super();
@@ -442,9 +442,9 @@ export abstract class ViewBase extends Observable implements ViewBaseDefinition 
     }
 
     private pseudoClassAliases = {
-        'highlighted': [
-            'active',
-            'pressed'
+        "highlighted": [
+            "active",
+            "pressed"
         ]
     };
 
@@ -597,13 +597,13 @@ export abstract class ViewBase extends Observable implements ViewBaseDefinition 
     }
 
     public loadView(view: ViewBase): void {
-        if (!view.isLoaded) {
+        if (view && !view.isLoaded) {
             view.callLoaded();
         }
     }
 
     public unloadView(view: ViewBase): void {
-        if (view.isLoaded) {
+        if (view && view.isLoaded) {
             view.callUnloaded();
         }
     }
@@ -653,7 +653,7 @@ export abstract class ViewBase extends Observable implements ViewBaseDefinition 
     }
 
     public resetNativeView(): void {
-        //    
+        //
     }
 
     private resetNativeViewInternal(): void {
@@ -689,17 +689,22 @@ export abstract class ViewBase extends Observable implements ViewBaseDefinition 
         }
 
         this._context = context;
-        let nativeView;
+
+        // This will account for nativeView that is created in createNativeView, recycled
+        // or for backward compatability - set before _setupUI in iOS contructor.
+        let nativeView = this.nativeViewProtected;
+
+        // if (isAndroid) {
+        //     const recycle = this.recycleNativeView;
+        //     if (recycle === "always" || (recycle === "auto" && !this._disableNativeViewRecycling)) {
+        //         nativeView = <android.view.View>getNativeView(context, this.typeName);
+        //     }
+        // }
+        if (!nativeView) {
+            nativeView = this.createNativeView();
+        }
+
         if (isAndroid) {
-            // const recycle = this.recycleNativeView;
-            // if (recycle === "always" || (recycle === "auto" && !this._disableNativeViewRecycling)) {
-            //     nativeView = <android.view.View>getNativeView(context, this.typeName);
-            // }
-
-            if (!nativeView) {
-                nativeView = this.createNativeView();
-            }
-
             this._androidView = nativeView;
             if (nativeView) {
                 if (this._isPaddingRelative === undefined) {
@@ -732,14 +737,10 @@ export abstract class ViewBase extends Observable implements ViewBaseDefinition 
                 }
             }
         } else {
-            // TODO: Implement _createNativeView for iOS
-            nativeView = this.createNativeView();
-            this._iosView = nativeView || this.nativeViewProtected;
+            this._iosView = nativeView;
         }
 
-        // This will account for nativeView that is created in createNativeView, recycled
-        // or for backward compatability - set before _setupUI in iOS contructor.
-        this.setNativeView(nativeView || this.nativeViewProtected);
+        this.setNativeView(nativeView);
 
         if (this.parent) {
             const nativeIndex = this.parent._childIndexToNativeChildIndex(atIndex);
@@ -865,9 +866,10 @@ export abstract class ViewBase extends Observable implements ViewBaseDefinition 
     }
 
     /**
+     * @deprecated
+     * 
      * This used to be the way to set attribute values in early {N} versions.
      * Now attributes are expected to be set as plain properties on the view instances.
-     * @deprecated
      */
     public _applyXmlAttribute(attribute: string, value: string): boolean {
         if (attribute === "style" || attribute === "rows" || attribute === "columns" || attribute === "fontAttributes") {
@@ -946,15 +948,15 @@ export abstract class ViewBase extends Observable implements ViewBaseDefinition 
         }
     }
 
-    public showModal(): ViewBase {
+    public showModal(...args): ViewBase {
         const parent = this.parent;
-        return parent && parent.showModal();
+        return parent && parent.showModal(...args);
     }
 
-    public closeModal(): void {
+    public closeModal(...args): void {
         const parent = this.parent;
         if (parent) {
-            parent.closeModal();
+            parent.closeModal(...args);
         }
     }
 
@@ -1016,7 +1018,7 @@ export const classNameProperty = new Property<ViewBase, string>({
     valueChanged(view: ViewBase, oldValue: string, newValue: string) {
         let classes = view.cssClasses;
         classes.clear();
-        if (typeof newValue === "string") {
+        if (typeof newValue === "string" && newValue !== "") {
             newValue.split(" ").forEach(c => classes.add(c));
         }
         view._onCssStateChange();
@@ -1028,7 +1030,7 @@ export const idProperty = new Property<ViewBase, string>({ name: "id", valueChan
 idProperty.register(ViewBase);
 
 export function booleanConverter(v: string): boolean {
-    const lowercase = (v + '').toLowerCase();
+    const lowercase = (v + "").toLowerCase();
     if (lowercase === "true") {
         return true;
     } else if (lowercase === "false") {
